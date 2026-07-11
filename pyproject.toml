@@ -1,0 +1,90 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sitesift"
+version = "0.0.1"
+description = "Collect structured, validated metadata for URLs at scale: site type, topic, language, quality flags — deterministic pipeline + LLM judgment."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Vincenzo Imperati" }]
+keywords = ["url", "classification", "metadata", "web", "crawler", "llm", "taxonomy", "iab"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Internet :: WWW/HTTP",
+]
+dependencies = [
+  # HTTP: pinned deliberately (upstream is in a slow-patch phase; we own the SSRF transport).
+  "httpx[http2]>=0.27,<0.29",
+  "idna>=3",
+  "anyio>=4",
+  "protego>=0.3",
+  "courlan>=1",
+  "tldextract>=5",
+  "trafilatura>=1.12",
+  "selectolax>=0.3",
+  "charset-normalizer>=3",
+  "py3langid>=0.3",
+  "pydantic>=2.7",
+  "pydantic-settings>=2",
+  "typer>=0.12",
+  "rich>=13",
+  "structlog>=24",
+  "pyyaml>=6",
+  "zstandard>=0.22",
+  "xxhash>=3",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.40"]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.23",
+  "respx>=0.21",
+  "ruff>=0.6",
+  "mypy>=1.10",
+  "coverage>=7",
+  "types-PyYAML",
+]
+
+[project.scripts]
+sitesift = "sitesift.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/VincenzoImp/sitesift"
+Repository = "https://github.com/VincenzoImp/sitesift"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sitesift"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test HTML fixtures are inherently long strings.
+"tests/**" = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src/sitesift/models.py", "src/sitesift/net/guard.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["src/sitesift"]
+branch = true

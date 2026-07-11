@@ -1,0 +1,81 @@
+id: sitesift-custom-1
+version: "1"
+source: "sitesift built-in default taxonomy (Apache-2.0)"
+nodes:
+  # --- Tier 1 (26 top-level topics) ---
+  - {id: "arts", name: "Arts & Entertainment", tier: 1, parent: null}
+  - {id: "auto", name: "Automotive", tier: 1, parent: null}
+  - {id: "biz", name: "Business & Finance", tier: 1, parent: null}
+  - {id: "careers", name: "Careers & Jobs", tier: 1, parent: null}
+  - {id: "edu", name: "Education", tier: 1, parent: null}
+  - {id: "family", name: "Family & Parenting", tier: 1, parent: null}
+  - {id: "fashion", name: "Fashion & Beauty", tier: 1, parent: null}
+  - {id: "food", name: "Food & Drink", tier: 1, parent: null}
+  - {id: "gaming", name: "Gaming", tier: 1, parent: null}
+  - {id: "gov", name: "Government & Law", tier: 1, parent: null}
+  - {id: "health", name: "Health & Fitness", tier: 1, parent: null}
+  - {id: "hobbies", name: "Hobbies & Leisure", tier: 1, parent: null}
+  - {id: "home", name: "Home & Garden", tier: 1, parent: null}
+  - {id: "news", name: "News & Current Affairs", tier: 1, parent: null}
+  - {id: "pets", name: "Pets & Animals", tier: 1, parent: null}
+  - {id: "politics", name: "Politics", tier: 1, parent: null}
+  - {id: "realestate", name: "Real Estate", tier: 1, parent: null}
+  - {id: "religion", name: "Religion & Spirituality", tier: 1, parent: null}
+  - {id: "science", name: "Science", tier: 1, parent: null}
+  - {id: "shopping", name: "Shopping & E-commerce", tier: 1, parent: null}
+  - {id: "society", name: "Society & Culture", tier: 1, parent: null}
+  - {id: "sports", name: "Sports", tier: 1, parent: null}
+  - {id: "tech", name: "Technology & Computing", tier: 1, parent: null}
+  - {id: "travel", name: "Travel & Tourism", tier: 1, parent: null}
+  - {id: "adult", name: "Adult", tier: 1, parent: null}
+  - {id: "other", name: "Other", tier: 1, parent: null}
+
+  # --- Tier 2 (selected children for the most-used topics) ---
+  - {id: "arts.music", name: "Music", tier: 2, parent: "arts"}
+  - {id: "arts.movies", name: "Movies & TV", tier: 2, parent: "arts"}
+  - {id: "arts.books", name: "Books & Literature", tier: 2, parent: "arts"}
+  - {id: "arts.celebrity", name: "Celebrity & Pop Culture", tier: 2, parent: "arts"}
+
+  - {id: "biz.finance", name: "Personal Finance", tier: 2, parent: "biz"}
+  - {id: "biz.markets", name: "Markets & Investing", tier: 2, parent: "biz"}
+  - {id: "biz.startups", name: "Startups & Entrepreneurship", tier: 2, parent: "biz"}
+  - {id: "biz.marketing", name: "Marketing & Advertising", tier: 2, parent: "biz"}
+
+  - {id: "food.recipes", name: "Recipes & Cooking", tier: 2, parent: "food"}
+  - {id: "food.restaurants", name: "Restaurants & Dining", tier: 2, parent: "food"}
+  - {id: "food.drinks", name: "Drinks & Beverages", tier: 2, parent: "food"}
+
+  - {id: "gaming.videogames", name: "Video Games", tier: 2, parent: "gaming"}
+  - {id: "gaming.esports", name: "Esports", tier: 2, parent: "gaming"}
+  - {id: "gaming.gambling", name: "Gambling & Betting", tier: 2, parent: "gaming"}
+
+  - {id: "health.fitness", name: "Fitness & Exercise", tier: 2, parent: "health"}
+  - {id: "health.nutrition", name: "Nutrition & Diet", tier: 2, parent: "health"}
+  - {id: "health.medical", name: "Medical & Conditions", tier: 2, parent: "health"}
+  - {id: "health.mental", name: "Mental Health", tier: 2, parent: "health"}
+
+  - {id: "news.world", name: "World News", tier: 2, parent: "news"}
+  - {id: "news.local", name: "Local News", tier: 2, parent: "news"}
+  - {id: "news.tech", name: "Technology News", tier: 2, parent: "news"}
+
+  - {id: "shopping.electronics", name: "Electronics", tier: 2, parent: "shopping"}
+  - {id: "shopping.apparel", name: "Apparel & Accessories", tier: 2, parent: "shopping"}
+  - {id: "shopping.home", name: "Home & Furniture", tier: 2, parent: "shopping"}
+  - {id: "shopping.marketplace", name: "Marketplaces", tier: 2, parent: "shopping"}
+
+  - {id: "sports.soccer", name: "Soccer", tier: 2, parent: "sports", hints: "campionati, partite, calciomercato, Serie A, Premier League"}
+  - {id: "sports.basketball", name: "Basketball", tier: 2, parent: "sports"}
+  - {id: "sports.motorsport", name: "Motorsport", tier: 2, parent: "sports"}
+  - {id: "sports.tennis", name: "Tennis", tier: 2, parent: "sports"}
+  - {id: "sports.cycling", name: "Cycling", tier: 2, parent: "sports"}
+  - {id: "sports.other", name: "Other Sports", tier: 2, parent: "sports"}
+
+  - {id: "tech.software", name: "Software & Apps", tier: 2, parent: "tech"}
+  - {id: "tech.hardware", name: "Hardware & Devices", tier: 2, parent: "tech"}
+  - {id: "tech.ai", name: "AI & Data", tier: 2, parent: "tech"}
+  - {id: "tech.web", name: "Web & Internet", tier: 2, parent: "tech"}
+  - {id: "tech.security", name: "Security & Privacy", tier: 2, parent: "tech"}
+
+  - {id: "travel.destinations", name: "Destinations", tier: 2, parent: "travel"}
+  - {id: "travel.accommodation", name: "Hotels & Accommodation", tier: 2, parent: "travel"}
+  - {id: "travel.transport", name: "Flights & Transport", tier: 2, parent: "travel"}

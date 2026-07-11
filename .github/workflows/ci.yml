@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev
+      - name: Lint
+        run: uv run ruff check src/ tests/ eval/
+      - name: Format check
+        run: uv run ruff format --check src/ tests/ eval/
+      - name: Typecheck
+        run: uv run mypy
+      - name: Test
+        run: uv run pytest -q
+      # The eval runs fully offline (frozen fixtures, no LLM), so it works on
+      # fork PRs without any secrets and gates the M3 rule targets.
+      - name: Rules eval
+        run: uv run sitesift eval

@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# sitesift runtime state (never commit fetched blobs / DBs / results)
+.sitesift/
+out/
+blobs/
+*.db
+*.db-wal
+*.db-shm
+~/.cache/sitesift/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

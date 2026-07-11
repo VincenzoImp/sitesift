@@ -1,0 +1,24 @@
+sitesift
+Copyright 2026 Vincenzo Imperati
+
+This product includes software developed as part of the sitesift project,
+licensed under the Apache License, Version 2.0.
+
+--------------------------------------------------------------------------------
+Third-party data (optional, opt-in taxonomy)
+--------------------------------------------------------------------------------
+
+When the IAB taxonomy is enabled, this product bundles data derived from:
+
+  IAB Tech Lab Content Taxonomy 3.1
+  Source: https://github.com/InteractiveAdvertisingBureau/Taxonomies
+  License: Creative Commons Attribution 3.0 (CC BY 3.0)
+           https://creativecommons.org/licenses/by/3.0/
+
+The taxonomy data is redistributed under CC BY 3.0. The CC BY 3.0 license
+applies to that data only; it does not apply to the sitesift source code,
+which is licensed under Apache-2.0. See src/sitesift/taxonomy/data/ for the
+converted files and their per-file attribution.
+
+The default topic taxonomy shipped with sitesift (taxonomy_custom.yaml) is an
+original work by the sitesift authors, licensed under Apache-2.0.

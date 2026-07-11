@@ -1,0 +1,10 @@
+{"name":"news-gazzetta","url":"https://gazzetta.it/serie-a","fixture":"news_gazzetta.html","expected_site_type":"news_outlet"}
+{"name":"news-reuters","url":"https://reuters.com/world","fixture":"news_reuters.html","expected_site_type":"news_outlet"}
+{"name":"shop-shopify","url":"https://sneakers.example.com/","fixture":"shop_shopify.html","expected_site_type":"ecommerce"}
+{"name":"shop-woo","url":"https://store.example.org/","fixture":"shop_woo.html","expected_site_type":"ecommerce"}
+{"name":"gov-agency","url":"https://transport.gov/","fixture":"gov_agency.html","expected_site_type":"government"}
+{"name":"wiki-page","url":"https://en.wikipedia.org/wiki/Topic","fixture":"wiki_page.html","expected_site_type":"reference_wiki"}
+{"name":"forum-thread","url":"https://community.example.com/t/123","fixture":"forum_thread.html","expected_site_type":"forum_community"}
+{"name":"academic-paper","url":"https://journal.example.edu/paper/1","fixture":"academic_paper.html","expected_site_type":"academic_research"}
+{"name":"corporate","url":"https://acme.example.com/","fixture":"corporate_page.html","expected_site_type":"corporate"}
+{"name":"blog","url":"https://jane.example.net/","fixture":"blog_personal.html","expected_site_type":"blog_personal"}
