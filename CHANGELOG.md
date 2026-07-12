@@ -8,7 +8,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - Project scaffold: packaging (`pyproject.toml`, hatchling, `src/` layout),
-  Apache-2.0 license, `NOTICE` (CC BY 3.0 attribution for optional IAB data).
+  Apache-2.0 license, `NOTICE`.
 - Core data models (`Evidence`, `Verdict`, `Flags`, `SiteTypeEnum`, `TopicPath`,
   `LanguageInfo`) and the stable error-code taxonomy.
 - Configuration loader with precedence CLI > env > file > default.
@@ -72,3 +72,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   against gemma4:12b: **1.00 accuracy** (rules 8/8, llm_small 2/2). The offline
   ladder-eval machinery is CI-tested (rules-only path = 0.80).
 - 156 tests; lint/format/typecheck clean.
+
+### Added (hardening pass)
+- `sitesift reclassify`: re-run classification from stored evidence without
+  re-fetching (after a rules/prompt/model change). Evidence storage now also
+  persists the deterministic flags so re-classification is exact.
+- Fetch retries with exponential backoff + jitter, honouring `Retry-After` on
+  429; interrupted-URL requeue on `--resume` (crash recovery).
+- `max_llm_concurrency` gate around the LLM classification step.
+
+### Changed
+- `set_status` validates column names against an allow-list.
+- Honest docs: `NOTICE`/`README` no longer claim bundled IAB data; `--scope` is
+  documented as recorded metadata (no site/page behaviour yet).
+
+### Fixed
+- Fetcher: an HTTP 4xx/5xx (incl. 429) with a non-HTML body now reports its real
+  error code instead of a misleading `E_NONHTML`.
+
+### Removed
+- Dead code / cruft: unused `net/cache.py` blob store, unused store query
+  helpers, unused config fields (`topic_depth`, `budget_usd`, `injection_canary`,
+  `max_decompress_ratio`, `max_pages_per_domain`, and the unused Cache/Extract/
+  Output config sections), and unused dependencies (`courlan`, `xxhash`,
+  `structlog`).

@@ -9,7 +9,7 @@ Given a set of URLs, `sitesift` produces for each a **structured, validated, rep
 - **quality flags** (`parked`, `dead`, `spam`, `adult`, `login_wall`, …)
 - **how confident** it is and **by which method** each decision was made (`rules`, `llm_small`, `llm_large`)
 
-It is **not** a recursive crawler (1–3 pages per domain), does not render JavaScript by default, and produces indicative flags — not certified brand-safety.
+It is **not** a recursive crawler (one page per URL), does not render JavaScript, and produces indicative flags — not certified brand-safety.
 
 ## Why it exists
 
@@ -54,6 +54,9 @@ sitesift run urls.txt --llm sync --provider ollama \
   --base-url http://localhost:11434 --model-small gemma4:12b --model-large gemma4:12b
 sitesift run urls.txt --llm sync --provider anthropic   # needs ANTHROPIC_API_KEY + [anthropic] extra
 
+# Re-classify from stored evidence after changing rules/prompt/model (no re-fetch):
+sitesift reclassify --llm sync --provider ollama --base-url http://localhost:11434
+
 sitesift status                     # frontier counts
 sitesift eval                       # offline rule metrics
 sitesift taxonomy show sports       # inspect the topic tree
@@ -78,5 +81,5 @@ Pre-alpha, under active development. See `CHANGELOG.md` and `docs/roadmap.md`.
 
 ## License
 
-Apache-2.0. The optional IAB Content Taxonomy 3.1 data is redistributed under
-CC BY 3.0 — see `NOTICE`.
+Apache-2.0. The bundled default taxonomy is original work under Apache-2.0; the
+taxonomy loader is pluggable (see `NOTICE`).

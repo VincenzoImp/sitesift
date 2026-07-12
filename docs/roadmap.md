@@ -24,6 +24,11 @@ without reworking earlier phases.
   **Ollama** (local, JSON-schema output) providers, taxonomy-hierarchy-validated
   structured output, and full provenance. Verified live against local models;
   the types rules can't cover (`corporate`, `blog_personal`, …) are now handled.
+- **Hardening pass**: fetch retries with exponential backoff (honouring
+  `Retry-After`), crash-recovery requeue of interrupted URLs on `--resume`,
+  `max_llm_concurrency` gate, `reclassify` (re-classify from stored evidence with
+  no re-fetch), SQL column allow-list in the store, and removal of all dead code
+  / unused config / unused dependencies.
 
 ## Deferred (post-MVP)
 
@@ -31,15 +36,17 @@ without reworking earlier phases.
   Replace with ~200 hand-labeled live URLs, double-labeled with Cohen's κ, before
   trusting metrics on real traffic. Add LLM-path accuracy (`site_type_accuracy`,
   `tier1_accuracy`, calibration/ECE) once the golden set exists.
+- **Domain-level classification + `--scope` behavior**: today every URL is
+  classified as a page; `--scope` is recorded but not acted upon (no
+  site-vs-page fetch, no per-domain homepage dedup / `DomainProfile`).
 - **Topic Tier-3/4 cascade (stage B)**: a second small LLM call over the chosen
-  Tier-2 subtree when `--topic-depth ≥ 3` (currently Tier-1/2 only).
-- **LLM concurrency + cost controls**: `max_llm_concurrency` gate, `--budget-usd`
-  hard stop, and Anthropic Batch API mode for large runs.
+  Tier-2 subtree (currently Tier-1/2 only).
+- **IAB taxonomy**: vendor IAB Content 3.1 (CC BY 3.0) as an opt-in taxonomy.
+- **On-disk blob cache**: persist fetched HTML so the extractor can re-run
+  without re-fetching (evidence is already re-usable via `reclassify`).
 - **Phase-separated subcommands**: `sitesift fetch` / `extract` / `classify`
-  running a single phase over the frontier (the pipeline already separates the
-  phases internally; these expose them on the CLI).
-- **Scale**: Batch API mode, sharding per domain, `--budget-usd`, richer metrics.
+  running a single phase over the frontier.
+- **Scale**: Anthropic Batch API mode, sharding per domain, `--budget-usd`,
+  richer metrics/logging.
 - **Rendering**: opt-in Playwright fallback for `js_required` pages.
-- **Agent**: optional `--investigate` step as a bespoke ~150-line Anthropic
-  tool-use loop (native hard request cap) — **not** the `pi` framework (wrong
-  runtime for a Python CLI).
+- **Agent**: optional `--investigate` step as a bespoke Anthropic tool-use loop.
