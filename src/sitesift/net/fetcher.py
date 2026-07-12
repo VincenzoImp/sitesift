@@ -10,9 +10,11 @@ resolved against the *tracked* original URL, never the pinned-IP URL.
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
+import anyio
 import httpx
 
 from ..config import Settings
@@ -23,6 +25,14 @@ from .robots import RobotsCache, RobotsPolicy
 
 _REDIRECT_CODES = {301, 302, 303, 307, 308}
 _ROBOTS_MAX_BYTES = 1_048_576  # 1 MiB is plenty for robots.txt
+
+# Transient outcomes worth retrying with backoff.
+_RETRYABLE: frozenset[ErrorCode] = frozenset(
+    {ErrorCode.E_TIMEOUT, ErrorCode.E_CONNECT, ErrorCode.E_HTTP_5XX, ErrorCode.E_RATE_LIMIT}
+)
+_RETRY_BASE = 0.5
+_RETRY_CAP = 20.0
+_RETRY_AFTER_CAP = 60.0
 
 
 @dataclass
@@ -70,11 +80,22 @@ class Fetcher:
         self._max_body = f.max_body_bytes
         self._max_decompressed = f.max_decompressed_bytes
         self._max_redirects = f.max_redirects
+        self._retries = f.retries
 
     async def aclose(self) -> None:
         await self._client.aclose()
 
     async def fetch(self, url_norm: str) -> FetchOutcome:
+        """Fetch with bounded exponential-backoff retries on transient failures."""
+        attempt = 0
+        while True:
+            outcome = await self._fetch_once(url_norm)
+            if outcome.error_code not in _RETRYABLE or attempt >= self._retries:
+                return outcome
+            attempt += 1
+            await anyio.sleep(_retry_delay(outcome, attempt))
+
+    async def _fetch_once(self, url_norm: str) -> FetchOutcome:
         current = url_norm
         chain: list[str] = []
         for _hop in range(self._max_redirects + 1):
@@ -140,6 +161,19 @@ class Fetcher:
         self, url_raw: str, url_final: str, chain: list[str], resp: httpx.Response
     ) -> FetchOutcome:
         headers = {k.lower(): v for k, v in resp.headers.items()}
+        # HTTP-status errors take precedence over the content-type gate, so a 5xx
+        # or 429 with a non-HTML body reports its real code (and can be retried),
+        # not a misleading E_NONHTML.
+        http_err = _http_error(resp.status_code)
+        if http_err is not None:
+            return FetchOutcome(
+                url_raw,
+                url_final,
+                status=resp.status_code,
+                headers=headers,
+                redirect_chain=chain,
+                error_code=http_err,
+            )
         content_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()
         is_html = content_type.startswith("text/html") or content_type.startswith(
             "application/xhtml"
@@ -173,7 +207,6 @@ class Fetcher:
             )
         content = await self._read_limited(resp)
         charset, source = _pick_charset(headers, content)
-        code = _http_error(resp.status_code)
         return FetchOutcome(
             url_raw,
             url_final,
@@ -183,7 +216,7 @@ class Fetcher:
             charset=charset,
             charset_source=source,
             redirect_chain=chain,
-            error_code=code,
+            error_code=None,
         )
 
     async def _read_limited(self, resp: httpx.Response) -> bytes:
@@ -270,6 +303,24 @@ def _err(
     return FetchOutcome(
         url_raw, url_final, redirect_chain=chain, error_code=code, robots_blocked=robots_blocked
     )
+
+
+def _retry_delay(outcome: FetchOutcome, attempt: int) -> float:
+    if outcome.error_code is ErrorCode.E_RATE_LIMIT:
+        retry_after = _parse_retry_after(outcome.headers.get("retry-after"))
+        if retry_after is not None:
+            return min(retry_after, _RETRY_AFTER_CAP)
+    backoff = min(_RETRY_CAP, _RETRY_BASE * (2 ** (attempt - 1)))
+    return backoff + random.uniform(0, _RETRY_BASE)
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return float(value)  # delta-seconds form; HTTP-date form falls back to backoff
+    except ValueError:
+        return None
 
 
 def _resolve_redirect(current: str, location: str) -> str:

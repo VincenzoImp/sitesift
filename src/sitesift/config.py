@@ -7,7 +7,6 @@ key), e.g. ``SITESIFT_IDENTITY__CONTACT=you@example.com``.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -36,26 +35,13 @@ class FetchConfig(BaseModel):
     max_redirects: int = 5
     max_body_bytes: int = 5_242_880  # 5 MiB
     max_decompressed_bytes: int = 20_971_520  # 20 MiB
-    max_decompress_ratio: int = 100
-    max_pages_per_domain: int = 3
     retries: int = 3
     allow_ports: tuple[int, ...] = (80, 443)
     respect_robots: bool = True
 
 
-class CacheConfig(BaseModel):
-    dir: str = "~/.cache/sitesift"
-    max_age: str = "7d"
-
-
-class ExtractConfig(BaseModel):
-    text_head_chars: int = 1200
-    text_tail_chars: int = 300
-    max_headings: int = 15
-
-
 class ClassifyConfig(BaseModel):
-    mode: str = "sync"  # sync | off  (batch added post-MVP)
+    mode: str = "sync"  # sync | off
     provider: str = "anthropic"  # anthropic | ollama
     base_url: str = ""  # for ollama/self-hosted; empty = provider default
     model_small: str = "claude-haiku-4-5"
@@ -64,8 +50,6 @@ class ClassifyConfig(BaseModel):
     accept_threshold_rules: float = 0.90
     accept_threshold_small: float = 0.75
     accept_threshold_large: float = 0.60
-    topic_depth: int = 2  # 1..4; 2 = Tier1+Tier2 only (no stage-B sub-call)
-    budget_usd: float = 0.0  # 0 = unlimited
 
 
 class TaxonomyConfig(BaseModel):
@@ -75,12 +59,6 @@ class TaxonomyConfig(BaseModel):
 
 class SecurityConfig(BaseModel):
     allow_private_ips: bool = False
-    injection_canary: bool = True
-
-
-class OutputConfig(BaseModel):
-    formats: list[str] = Field(default_factory=lambda: ["jsonl", "sqlite"])
-    dir: str = "./out"
 
 
 class Settings(BaseSettings):
@@ -94,15 +72,9 @@ class Settings(BaseSettings):
 
     identity: IdentityConfig = Field(default_factory=IdentityConfig)
     fetch: FetchConfig = Field(default_factory=FetchConfig)
-    cache: CacheConfig = Field(default_factory=CacheConfig)
-    extract: ExtractConfig = Field(default_factory=ExtractConfig)
     classify: ClassifyConfig = Field(default_factory=ClassifyConfig)
     taxonomy: TaxonomyConfig = Field(default_factory=TaxonomyConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
-    output: OutputConfig = Field(default_factory=OutputConfig)
-
-    # Set by load_config() so callers can build the config-source list.
-    _toml_path: Path | None = None
 
     @classmethod
     def settings_customise_sources(
@@ -123,9 +95,6 @@ class Settings(BaseSettings):
     def user_agent(self) -> str:
         contact = self.identity.contact or "no-contact-configured"
         return f"sitesift/{__version__} (+{self.identity.project_url}; contact: {contact})"
-
-    def cache_dir(self) -> Path:
-        return Path(os.path.expanduser(self.cache.dir))
 
 
 def _discover_toml(explicit: str | None = None) -> Path | None:

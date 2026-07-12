@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections import Counter
-from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,6 +22,23 @@ import zstandard
 from ..models import Scope, UrlStatus
 
 _SCHEMA_VERSION = "1"
+
+# Columns set_status is allowed to update (guards the dynamic UPDATE against an
+# unvetted column name reaching the SQL string).
+_MUTABLE_COLUMNS = frozenset(
+    {
+        "last_error_code",
+        "last_error_msg",
+        "http_status",
+        "content_sha256",
+        "next_attempt_at",
+        "fetched_at",
+        "extracted_at",
+        "classified_at",
+        "skip_reason",
+        "attempts",
+    }
+)
 
 _CCTX = zstandard.ZstdCompressor(level=10)
 _DCTX = zstandard.ZstdDecompressor()
@@ -170,6 +186,8 @@ class FrontierStore:
         cols = ["status = ?"]
         vals: list[object] = [str(status)]
         for key, value in fields.items():
+            if key not in _MUTABLE_COLUMNS:  # never interpolate an unvetted column name
+                raise ValueError(f"not an updatable column: {key!r}")
             cols.append(f"{key} = ?")
             vals.append(value)
         vals.append(url_norm)
@@ -182,9 +200,25 @@ class FrontierStore:
                 "UPDATE urls SET attempts = attempts + 1 WHERE url_norm = ?", (url_norm,)
             )
 
+    def requeue_stuck(self) -> int:
+        """Reset URLs left in 'fetching' by a crash back to 'pending'. Returns count."""
+        with self._conn:
+            cur = self._conn.execute(
+                "UPDATE urls SET status = ? WHERE status = ?",
+                (str(UrlStatus.PENDING), str(UrlStatus.FETCHING)),
+            )
+        return cur.rowcount
+
     # --- evidence ----------------------------------------------------------
 
-    def save_evidence(self, url_norm: str, payload: dict[str, object], version: str) -> None:
+    def save_evidence(
+        self,
+        url_norm: str,
+        evidence: dict[str, object],
+        flags: dict[str, object],
+        version: str,
+    ) -> None:
+        payload = {"evidence": evidence, "flags": flags}
         blob = _CCTX.compress(json.dumps(payload, default=str).encode("utf-8"))
         with self._conn:
             self._conn.execute(
@@ -197,14 +231,17 @@ class FrontierStore:
                 (str(UrlStatus.EXTRACTED), _now(), url_norm),
             )
 
-    def load_evidence(self, url_norm: str) -> dict[str, object] | None:
+    def load_evidence(self, url_norm: str) -> tuple[dict[str, object], dict[str, object]] | None:
+        """Return the stored (evidence, flags) for a URL, or None."""
         row = self._conn.execute(
             "SELECT payload FROM evidence WHERE url_norm = ?", (url_norm,)
         ).fetchone()
         if row is None:
             return None
         data = json.loads(_DCTX.decompress(row["payload"]).decode("utf-8"))
-        return data if isinstance(data, dict) else None
+        if not isinstance(data, dict) or "evidence" not in data:
+            return None
+        return data["evidence"], data.get("flags", {})
 
     # --- results -----------------------------------------------------------
 
@@ -263,21 +300,16 @@ class FrontierStore:
         rows = self._conn.execute(sql, params).fetchall()
         return [self._to_row(r) for r in rows]
 
-    def urls_by_status(self, status: UrlStatus, limit: int | None = None) -> list[UrlRow]:
-        sql = "SELECT * FROM urls WHERE status = ?"
-        params: list[object] = [str(status)]
-        if limit is not None:
-            sql += " LIMIT ?"
-            params.append(limit)
-        return [self._to_row(r) for r in self._conn.execute(sql, params).fetchall()]
+    def reclassifiable(self) -> list[UrlRow]:
+        """URLs that have stored evidence (for re-classification without refetch)."""
+        rows = self._conn.execute(
+            "SELECT u.* FROM urls u JOIN evidence e ON e.url_norm = u.url_norm ORDER BY u.host"
+        ).fetchall()
+        return [self._to_row(r) for r in rows]
 
     def counts_by_status(self) -> Counter[str]:
         rows = self._conn.execute("SELECT status, COUNT(*) AS n FROM urls GROUP BY status")
         return Counter({r["status"]: r["n"] for r in rows})
-
-    def iter_page_records(self) -> Iterator[dict[str, object]]:
-        for r in self._conn.execute("SELECT * FROM page_records"):
-            yield dict(r)
 
     @staticmethod
     def _to_row(r: sqlite3.Row) -> UrlRow:
