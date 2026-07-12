@@ -16,7 +16,7 @@ import anyio
 import tldextract
 
 from . import __version__
-from .classify.ladder import Ladder
+from .classify.ladder import ClassifyOutcome, Ladder
 from .classify.llm import build_classifier
 from .classify.rules import RuleEngine
 from .config import Settings
@@ -25,7 +25,7 @@ from .extract.bundle import build_evidence
 from .frontier.filters import prefilter
 from .frontier.normalize import NormalizationError, normalize_url
 from .frontier.store import FrontierStore, UrlRow
-from .models import Flags, Scope, UrlStatus
+from .models import Evidence, Flags, Scope, UrlStatus
 from .net.fetcher import Fetcher, FetchOutcome
 from .output.jsonl import JsonlWriter, build_error_record, build_record
 from .taxonomy.loader import load_taxonomy
@@ -48,6 +48,7 @@ class PipelineStats:
     needs_human: int = 0
     errors: int = 0
     skipped: int = 0
+    requeued: int = 0
     by_error: dict[str, int] = field(default_factory=dict)
 
 
@@ -118,16 +119,23 @@ async def run_pipeline(
             if reason:
                 stats.skipped += 1
 
+    # Recover URLs left mid-fetch by a previous crash so --resume picks them up.
+    stats.requeued = store.requeue_stuck()
+
     # --- process pending ---
     fetcher = Fetcher(settings)
     writer = JsonlWriter(out_path)
     sem = anyio.Semaphore(max(1, settings.fetch.max_concurrency))
+    # Separate, tighter gate on concurrent LLM calls (None = rules-only run).
+    llm_sem = (
+        anyio.Semaphore(max(1, settings.classify.max_llm_concurrency)) if llm is not None else None
+    )
     pending = store.pending_urls()
 
     async def worker(row: UrlRow) -> None:
         async with sem:
             await _process(
-                row, store, fetcher, ladder, writer, settings, tax_version, rules.version, stats
+                row, store, fetcher, ladder, writer, llm_sem, tax_version, rules.version, stats
             )
 
     try:
@@ -144,13 +152,99 @@ async def run_pipeline(
     return stats
 
 
+async def reclassify(
+    settings: Settings,
+    *,
+    out_path: str,
+    db_path: str,
+) -> PipelineStats:
+    """Re-run classification from stored evidence, without re-fetching anything.
+
+    Use after changing the rules, taxonomy, prompt, or model — only the judgment
+    layer re-runs; the deterministic evidence is reused from the frontier.
+    """
+    store = FrontierStore(db_path)
+    rules = RuleEngine.load()
+    taxonomy = load_taxonomy(taxonomy_id=settings.taxonomy.id, path=settings.taxonomy.path)
+    tax_version = taxonomy.id
+    llm = build_classifier(settings, taxonomy)
+    ladder = Ladder(rules, settings, llm)
+    writer = JsonlWriter(out_path)
+    sem = anyio.Semaphore(max(1, settings.fetch.max_concurrency))
+    llm_sem = (
+        anyio.Semaphore(max(1, settings.classify.max_llm_concurrency)) if llm is not None else None
+    )
+    stats = PipelineStats()
+
+    async def worker(row: UrlRow) -> None:
+        async with sem:
+            loaded = store.load_evidence(row.url_norm)
+            if loaded is None:
+                return
+            ev = Evidence.model_validate(loaded[0])
+            flags = Flags.model_validate(loaded[1])
+            outcome = await _classify(ladder, ev, flags, llm_sem)
+            store.save_page_record(
+                url_norm=row.url_norm,
+                domain=ev.domain,
+                verdict=outcome.verdict.model_dump(),
+                method=outcome.method.value,
+                confidence=outcome.confidence,
+                taxonomy_version=tax_version,
+                rules_version=rules.version,
+                model_id=outcome.model_id,
+                prompt_sha256=outcome.prompt_sha256,
+                tokens_in=outcome.tokens_in,
+                tokens_out=outcome.tokens_out,
+                needs_human=outcome.needs_human,
+            )
+            writer.write(
+                build_record(
+                    ev,
+                    outcome.verdict,
+                    outcome.method,
+                    scope=row.scope,
+                    taxonomy_version=tax_version,
+                    rules_version=rules.version,
+                    sitesift_version=__version__,
+                    model_id=outcome.model_id,
+                    tokens_in=outcome.tokens_in,
+                    tokens_out=outcome.tokens_out,
+                )
+            )
+            stats.classified += 1
+            if outcome.needs_human:
+                stats.needs_human += 1
+
+    try:
+        async with anyio.create_task_group() as tg:
+            for row in store.reclassifiable():
+                tg.start_soon(worker, row)
+    finally:
+        writer.close()
+        store.close()
+        if llm is not None:
+            llm.close()
+
+    return stats
+
+
+async def _classify(
+    ladder: Ladder, ev: Evidence, flags: Flags, llm_sem: anyio.Semaphore | None
+) -> ClassifyOutcome:
+    if llm_sem is None:
+        return await anyio.to_thread.run_sync(ladder.classify, ev, flags)
+    async with llm_sem:
+        return await anyio.to_thread.run_sync(ladder.classify, ev, flags)
+
+
 async def _process(
     row: UrlRow,
     store: FrontierStore,
     fetcher: Fetcher,
     ladder: Ladder,
     writer: JsonlWriter,
-    settings: Settings,
+    llm_sem: anyio.Semaphore | None,
     tax_version: str,
     rules_version: str,
     stats: PipelineStats,
@@ -171,9 +265,10 @@ async def _process(
             charset=out.charset,
             charset_source=out.charset_source,
         )
-        store.save_evidence(row.url_norm, ev.model_dump(), ev.extractor_version)
-        # The LLM client is synchronous HTTP; run classify off the event loop.
-        outcome = await anyio.to_thread.run_sync(ladder.classify, ev, flags)
+        store.save_evidence(row.url_norm, ev.model_dump(), flags.model_dump(), ev.extractor_version)
+        # The LLM client is synchronous HTTP; run classify off the event loop,
+        # gated by the LLM concurrency semaphore when a model is in the loop.
+        outcome = await _classify(ladder, ev, flags, llm_sem)
         store.save_page_record(
             url_norm=row.url_norm,
             domain=ev.domain,

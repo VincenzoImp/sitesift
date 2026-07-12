@@ -2,9 +2,9 @@
 
 Commands are thin wrappers that load config and call into the pipeline modules:
 ``doctor`` (health check), ``init`` (starter config), ``run`` (full pipeline),
-``status`` (frontier counts), and ``taxonomy`` (inspect the topic tree). The
-phase-separated subcommands (``fetch``/``extract``/``classify``) and ``eval``
-land alongside the eval harness.
+``reclassify`` (re-run classification from stored evidence, no re-fetch),
+``status`` (frontier counts), ``taxonomy`` (inspect the topic tree), and
+``eval`` (offline rule/ladder metrics).
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__
-from .config import load_config
+from .config import Settings, load_config
 
 app = typer.Typer(
     name="sitesift",
@@ -31,9 +31,9 @@ console = Console()
 # Runtime dependencies checked by `doctor`. (Provider SDKs are optional extras.)
 _REQUIRED_MODULES = [
     "httpx",
+    "idna",
     "anyio",
     "protego",
-    "courlan",
     "tldextract",
     "trafilatura",
     "selectolax",
@@ -43,10 +43,8 @@ _REQUIRED_MODULES = [
     "pydantic_settings",
     "typer",
     "rich",
-    "structlog",
     "yaml",
     "zstandard",
-    "xxhash",
 ]
 
 
@@ -101,12 +99,47 @@ def _read_input(source: str) -> list[str]:
     return Path(source).expanduser().read_text(encoding="utf-8").splitlines()
 
 
+def _apply_llm_options(
+    settings: Settings,
+    *,
+    llm: str,
+    provider: str,
+    base_url: str,
+    model_small: str,
+    model_large: str,
+) -> None:
+    if llm == "off":
+        settings.classify.mode = "off"
+        return
+    settings.classify.mode = "sync"
+    if provider:
+        settings.classify.provider = provider
+    if base_url:
+        settings.classify.base_url = base_url
+    if model_small:
+        settings.classify.model_small = model_small
+    if model_large:
+        settings.classify.model_large = model_large
+
+
+def _print_stats(stats: object) -> None:
+    line = (
+        f"[green]done[/green] added={stats.added} classified={stats.classified} "  # type: ignore[attr-defined]
+        f"needs_human={stats.needs_human} errors={stats.errors} skipped={stats.skipped}"  # type: ignore[attr-defined]
+    )
+    if stats.requeued:  # type: ignore[attr-defined]
+        line += f" requeued={stats.requeued}"  # type: ignore[attr-defined]
+    console.print(line)
+    if stats.by_error:  # type: ignore[attr-defined]
+        console.print(f"errors by code: {dict(stats.by_error)}")  # type: ignore[attr-defined]
+
+
 @app.command()
 def run(
     input: str = typer.Argument(..., help="URL list file (text or JSONL), or '-' for stdin"),
     out: str = typer.Option("out/results.jsonl", "--out", help="JSONL output path"),
     db: str = typer.Option(".sitesift/state.db", "--db", help="frontier/results SQLite DB"),
-    scope: str = typer.Option("auto", "--scope", help="auto|site|page|both"),
+    scope: str = typer.Option("auto", "--scope", help="tag recorded in output (metadata only)"),
     llm: str = typer.Option("off", "--llm", help="off (rules-only) | sync (LLM ladder)"),
     provider: str = typer.Option("", "--provider", help="anthropic | ollama (default: config)"),
     base_url: str = typer.Option("", "--base-url", help="LLM base URL (ollama/self-hosted)"),
@@ -123,18 +156,14 @@ def run(
     from .pipeline import run_pipeline
 
     settings = load_config()
-    if llm == "off":
-        settings.classify.mode = "off"
-    else:
-        settings.classify.mode = "sync"
-        if provider:
-            settings.classify.provider = provider
-        if base_url:
-            settings.classify.base_url = base_url
-        if model_small:
-            settings.classify.model_small = model_small
-        if model_large:
-            settings.classify.model_large = model_large
+    _apply_llm_options(
+        settings,
+        llm=llm,
+        provider=provider,
+        base_url=base_url,
+        model_small=model_small,
+        model_large=model_large,
+    )
 
     if not settings.identity.contact and not no_contact:
         console.print(
@@ -152,12 +181,38 @@ def run(
         )
 
     stats = anyio.run(_go)
-    console.print(
-        f"[green]done[/green] added={stats.added} classified={stats.classified} "  # type: ignore[attr-defined]
-        f"needs_human={stats.needs_human} errors={stats.errors} skipped={stats.skipped}"
+    _print_stats(stats)
+
+
+@app.command()
+def reclassify(
+    out: str = typer.Option("out/results.jsonl", "--out", help="JSONL output path"),
+    db: str = typer.Option(".sitesift/state.db", "--db", help="frontier/results SQLite DB"),
+    llm: str = typer.Option("off", "--llm", help="off (rules-only) | sync (LLM ladder)"),
+    provider: str = typer.Option("", "--provider", help="anthropic | ollama (default: config)"),
+    base_url: str = typer.Option("", "--base-url", help="LLM base URL (ollama/self-hosted)"),
+    model_small: str = typer.Option("", "--model-small", help="override small model"),
+    model_large: str = typer.Option("", "--model-large", help="override large model"),
+) -> None:
+    """Re-classify from stored evidence — no re-fetch (after a rules/prompt/model change)."""
+    import anyio
+
+    from .pipeline import reclassify as run_reclassify
+
+    settings = load_config()
+    _apply_llm_options(
+        settings,
+        llm=llm,
+        provider=provider,
+        base_url=base_url,
+        model_small=model_small,
+        model_large=model_large,
     )
-    if stats.by_error:  # type: ignore[attr-defined]
-        console.print(f"errors by code: {dict(stats.by_error)}")  # type: ignore[attr-defined]
+
+    async def _go() -> object:
+        return await run_reclassify(settings, out_path=out, db_path=db)
+
+    _print_stats(anyio.run(_go))
 
 
 @app.command()
