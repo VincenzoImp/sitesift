@@ -16,7 +16,7 @@ import pytest
 
 from sitesift.config import Settings
 from sitesift.models import Scope
-from sitesift.pipeline import run_pipeline
+from sitesift.pipeline import reclassify, run_pipeline
 
 _SHOP = (
     b"<!doctype html><html lang='en'><head><title>Shop</title>"
@@ -130,3 +130,24 @@ async def test_pipeline_resumes(server: int, tmp_path: Path) -> None:
     )
     assert second.added == 0
     assert second.classified == 0
+
+
+async def test_reclassify_from_stored_evidence(server: int, tmp_path: Path) -> None:
+    db = tmp_path / "state.db"
+    base = f"http://127.0.0.1:{server}"
+
+    # First: fetch + classify, which stores evidence in the frontier.
+    await run_pipeline(
+        _settings(server),
+        [f"{base}/", f"{base}/news"],
+        out_path=str(tmp_path / "first.jsonl"),
+        db_path=str(db),
+        default_scope=Scope.AUTO,
+    )
+
+    # Then: re-classify from stored evidence with NO server access at all.
+    out2 = tmp_path / "reclass.jsonl"
+    stats = await reclassify(_settings(server), out_path=str(out2), db_path=str(db))
+    assert stats.classified == 2
+    types = {r["site"]["site_type"] for r in _records(out2)}
+    assert types == {"ecommerce", "news_outlet"}
