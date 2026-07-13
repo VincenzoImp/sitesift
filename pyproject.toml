@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sitesift"
-version = "0.0.1"
+version = "0.1.0"
 description = "Collect structured, validated metadata for URLs at scale: site type, topic, language, quality flags — deterministic pipeline + LLM judgment."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,7 +13,7 @@ license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Vincenzo Imperati" }]
 keywords = ["url", "classification", "metadata", "web", "crawler", "llm", "taxonomy", "iab"]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python :: 3.11",

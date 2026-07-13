@@ -1,0 +1,7 @@
+# One URL per line. Blank lines and #-comments are ignored.
+# JSONL lines are also accepted, e.g.:  {"url": "https://x.example/", "scope": "auto", "tags": ["seed"]}
+https://example.com/
+https://en.wikipedia.org/wiki/Python_(programming_language)
+https://www.python.org/
+https://www.gov.uk/
+https://news.ycombinator.com/

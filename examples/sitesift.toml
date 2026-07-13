@@ -1,0 +1,27 @@
+# Example configuration. Copy to ./sitesift.toml and edit.
+# Precedence: CLI flags > env (SITESIFT_<SECTION>__<KEY>) > this file > defaults.
+
+[identity]
+# REQUIRED before fetching — an identifying, reachable contact goes in the User-Agent.
+contact = "you@example.com"
+project_url = "https://github.com/VincenzoImp/sitesift"
+
+[fetch]
+# Collection is I/O-bound and parallel across hosts (>=1 concurrent request PER host).
+# Keep this a bit above your LLM parallelism so the model never starves; the default
+# (200) is fine for lists that span many distinct hosts.
+max_concurrency = 64
+min_host_delay = 1.0            # politeness floor per host, in seconds
+
+[classify]
+mode = "sync"                   # "sync" = LLM classifies every URL; "off" = extract facts only
+provider = "ollama"             # "anthropic" | "ollama"
+base_url = "http://localhost:11434"
+model_small = "gemma4:12b"      # cheap/fast rung — handles most pages
+model_large = "gemma4:12b"      # escalation rung — only runs when the small one is unsure
+# Match this to the server's real parallelism (Ollama: OLLAMA_NUM_PARALLEL). Setting it
+# higher than the server serves in parallel just queues the requests.
+max_llm_concurrency = 4
+
+[taxonomy]
+id = "sitesift-custom-1"        # bundled 26-node default; set `path` to a YAML file to override

@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.1.0] - 2026-07-13
+
+First tagged pre-release. The pipeline is complete and tested end-to-end;
+classification is LLM-driven (the deterministic layer only extracts facts).
+
 ### Added
 - Project scaffold: packaging (`pyproject.toml`, hatchling, `src/` layout),
   Apache-2.0 license, `NOTICE`.

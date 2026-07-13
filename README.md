@@ -33,13 +33,19 @@ The only decision the deterministic layer makes is to *skip* a page with no cont
 
 The deterministic layer hands the LLM the whole fact bundle (host/TLD, JSON-LD, platform markers, feeds, prices, the full main text, …); the model weighs it all. `sitesift run` orchestrates every phase.
 
-## Install (once implemented)
+## Install
+
+Not on PyPI yet — install from source (the `[anthropic]` extra is optional, only for the Anthropic provider):
 
 ```bash
-uvx sitesift --help          # or: pipx install sitesift
+git clone https://github.com/VincenzoImp/sitesift && cd sitesift
+uv sync                       # or: pipx install '.[anthropic]'
+uv run sitesift --help
 ```
 
 ## Quick start
+
+There is a ready-made config and URL list under [`examples/`](examples/):
 
 ```bash
 sitesift doctor                     # verify environment
@@ -47,18 +53,17 @@ sitesift init                       # write a starter sitesift.toml
 export SITESIFT_IDENTITY__CONTACT="you@example.com"   # required to fetch
 
 # Classify every URL with the LLM (local Ollama — free):
-sitesift run urls.txt --llm sync --provider ollama \
+sitesift run examples/urls.txt --llm sync --provider ollama \
   --base-url http://localhost:11434 --model-small gemma4:12b --model-large gemma4:12b
 # …or with Anthropic:
-sitesift run urls.txt --llm sync --provider anthropic   # needs ANTHROPIC_API_KEY + [anthropic] extra
+sitesift run examples/urls.txt --llm sync --provider anthropic   # needs ANTHROPIC_API_KEY + [anthropic] extra
 
-# Extract the facts only, no classification (no LLM, no cost):
-sitesift run urls.txt --llm off     # → out/results.jsonl
+# Two-phase: collect the facts fast now, run inference later (no re-fetch) — see Performance.
+sitesift run examples/urls.txt --llm off --db state.db          # phase 1: extract only
+sitesift reclassify --llm sync --provider ollama --db state.db \
+  --base-url http://localhost:11434 --model-small gemma4:12b    # phase 2: classify stored evidence
 
-# Re-classify from stored evidence after changing prompt/model/taxonomy (no re-fetch):
-sitesift reclassify --llm sync --provider ollama --base-url http://localhost:11434
-
-sitesift status                     # frontier counts
+sitesift status --db state.db       # frontier counts
 sitesift eval --provider ollama --base-url http://localhost:11434 --model gemma4:12b   # LLM accuracy on the golden set
 sitesift taxonomy show sports       # inspect the topic tree
 ```
@@ -76,9 +81,28 @@ sitesift taxonomy show sports       # inspect the topic tree
 
 Read `docs/politeness.md` before running at scale.
 
+## Performance
+
+The two phases have independent, opposite bottlenecks, so tune them separately:
+
+- **Collection** (`fetch`) is I/O-bound and parallel across hosts (≥1 concurrent request *per host* + `min_host_delay`). Throughput scales with **how many distinct hosts** your list spans; `fetch.max_concurrency` (default 200) caps total in-flight fetches.
+- **Inference** (`classify`) is bound by your model/provider throughput. `classify.max_llm_concurrency` only helps if the provider actually serves requests in parallel.
+
+Because inference is usually **far** slower than collection, total time ≈ `URLs × time_per_inference ÷ provider_parallelism`; collection runs in its shadow. So put optimisation effort on the model side, and — when the model is slow — prefer the **two-phase** flow (`run --llm off` then `reclassify`) so a fast, resumable collection isn't blocked on the model.
+
+Measured on a local Ollama (`gemma4:12b`, RTX 4090):
+
+| | throughput |
+|---|---|
+| collection (`--llm off`) | ~0.85 s/URL (network-bound) |
+| inference, warm single call | ~11.8 s/URL |
+| inference, current server default | **~315 URL/hour** (Ollama serves 1 request at a time) |
+
+To go faster with the same model: set `OLLAMA_NUM_PARALLEL=N` on the Ollama server so the GPU batches requests (the 4090 has VRAM headroom for a few), then match `classify.max_llm_concurrency = N`. For bulk, a hosted provider (Anthropic, with prompt caching already enabled) parallelises far more than a single local GPU. Picking the smallest model that is still accurate enough (measure with `sitesift eval`) is the single biggest lever.
+
 ## Status
 
-Pre-alpha, under active development. See `CHANGELOG.md` and `docs/roadmap.md`.
+Alpha (`v0.1.0`). The pipeline is complete and tested end-to-end; the eval still uses a synthetic golden set (see `docs/roadmap.md`). See `CHANGELOG.md`.
 
 ## License
 
