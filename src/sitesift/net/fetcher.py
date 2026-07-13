@@ -268,7 +268,7 @@ class Fetcher:
                 finally:
                     await resp.aclose()
         except (httpx.HTTPError, SSRFBlocked, _BodyLimitExceeded):
-            policy = RobotsPolicy.disallow_all()  # unavailable -> disallow (Google semantics)
+            policy = RobotsPolicy.allow_all()  # unretrievable robots -> fail open (fetch anyway)
             self._robots.set(host, policy)
             return policy
 

@@ -12,6 +12,8 @@ project_url = "https://github.com/VincenzoImp/sitesift"
 # (200) is fine for lists that span many distinct hosts.
 max_concurrency = 64
 min_host_delay = 1.0            # politeness floor per host, in seconds
+# respect_robots = false       # ignore robots.txt entirely — fetch every URL (aggressive;
+                               # for research crawls that must not lose a fetchable page)
 
 [classify]
 mode = "sync"                   # "sync" = LLM classifies every URL; "off" = extract facts only

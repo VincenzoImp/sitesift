@@ -208,6 +208,21 @@ class FrontierStore:
             )
         return cur.rowcount
 
+    def requeue_status(self, status: UrlStatus) -> int:
+        """Reset every URL in a terminal ``status`` back to 'pending' for a
+        re-run, clearing the recorded error and attempt count. Returns the count.
+
+        Used to re-fetch a class of previously-skipped URLs (e.g. after relaxing
+        the robots policy) without touching the rows that already succeeded.
+        """
+        with self._conn:
+            cur = self._conn.execute(
+                "UPDATE urls SET status = ?, last_error_code = NULL, "
+                "next_attempt_at = NULL, attempts = 0 WHERE status = ?",
+                (str(UrlStatus.PENDING), str(status)),
+            )
+        return cur.rowcount
+
     # --- evidence ----------------------------------------------------------
 
     def save_evidence(

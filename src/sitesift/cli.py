@@ -3,8 +3,9 @@
 Commands are thin wrappers that load config and call into the pipeline modules:
 ``doctor`` (health check), ``init`` (starter config), ``run`` (full pipeline),
 ``reclassify`` (re-run classification from stored evidence, no re-fetch),
-``status`` (frontier counts), ``taxonomy`` (inspect the topic tree), and
-``eval`` (LLM accuracy on the golden set).
+``status`` (frontier counts), ``requeue`` (reset a status back to pending for a
+re-run), ``taxonomy`` (inspect the topic tree), and ``eval`` (LLM accuracy on
+the golden set).
 """
 
 from __future__ import annotations
@@ -231,6 +232,33 @@ def status(db: str = typer.Option(".sitesift/state.db", "--db")) -> None:
     for name, count in sorted(counts.items()):
         table.add_row(name, str(count))
     console.print(table)
+
+
+@app.command()
+def requeue(
+    status: str = typer.Option(
+        ...,
+        "--status",
+        help="terminal status to reset to pending (e.g. blocked_robots_unavailable)",
+    ),
+    db: str = typer.Option(".sitesift/state.db", "--db", help="frontier/results SQLite DB"),
+) -> None:
+    """Reset every URL in a given status back to 'pending' for a re-run."""
+    from .frontier.store import FrontierStore
+    from .models import UrlStatus
+
+    if not Path(db).expanduser().exists():
+        console.print(f"[yellow]no frontier DB at {db}[/yellow]")
+        raise typer.Exit(0)
+    try:
+        target = UrlStatus(status)
+    except ValueError:
+        valid = ", ".join(s.value for s in UrlStatus)
+        console.print(f"[red]error[/red] unknown status {status!r}. Valid: {valid}")
+        raise typer.Exit(2) from None
+    with FrontierStore(db) as store:
+        n = store.requeue_status(target)
+    console.print(f"[green]requeued[/green] {n} URL(s): {status} -> pending")
 
 
 @app.command()

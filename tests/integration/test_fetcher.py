@@ -128,6 +128,44 @@ async def test_robots_block(server: int) -> None:
         await fetcher.aclose()
 
 
+class _RobotsErrorHandler(BaseHTTPRequestHandler):
+    """Serves 503 on /robots.txt but 200 HTML everywhere else."""
+
+    def log_message(self, *_a: object) -> None:
+        pass
+
+    def do_GET(self) -> None:  # noqa: N802
+        if self.path.split("?", 1)[0] == "/robots.txt":
+            self.send_response(503)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(_PAGE)))
+        self.end_headers()
+        self.wfile.write(_PAGE)
+
+
+async def test_robots_unavailable_fails_open(server: int) -> None:
+    """A host whose robots.txt 5xx-errors must still be fetched (fail open),
+    not skipped as E_ROBOTS_UNAVAIL."""
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), _RobotsErrorHandler)
+    port = httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        fetcher = Fetcher(_settings(port))
+        try:
+            out = await fetcher.fetch(f"http://127.0.0.1:{port}/")
+            assert out.ok, f"expected fetch, got error_code={out.error_code}"
+            assert out.status == 200
+            assert out.error_code is None
+        finally:
+            await fetcher.aclose()
+    finally:
+        httpd.shutdown()
+
+
 async def test_one_connection_per_host(server: int) -> None:
     fetcher = Fetcher(_settings(server))
     try:

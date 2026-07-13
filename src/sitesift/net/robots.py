@@ -1,14 +1,19 @@
-"""robots.txt policy with the error semantics Google documents.
+"""robots.txt policy.
 
 This module is pure: it stores parsed policies keyed by host and answers
 allow/delay questions. The *fetching* of ``/robots.txt`` is the fetcher's job
 (so the SSRF guard applies); the fetcher then calls :meth:`RobotsCache.set`.
 
-Error semantics (aligned with Google):
+Error semantics — **fail open**: a robots.txt that cannot be read cleanly must
+not block a fetchable page (a single homepage per host, in a research crawl,
+should never be lost to a hiccuping or redirecting robots endpoint).
 
-* ``2xx``            → apply the parsed rules
-* ``4xx`` (incl 404) → allow all
-* ``5xx`` / timeout  → **disallow all** for this host (retry next run)
+* ``2xx``                                → apply the parsed rules
+* everything else (``4xx``, ``5xx``,
+  ``3xx`` redirect, timeout/synthetic 0) → allow all
+
+Only an explicit ``2xx`` robots with a matching ``Disallow`` blocks. Set
+``fetch.respect_robots = false`` to ignore robots.txt entirely.
 """
 
 from __future__ import annotations
@@ -50,13 +55,14 @@ class RobotsPolicy:
 
 
 def policy_for_status(status: int, body: str, user_agent: str) -> RobotsPolicy:
-    """Build a policy from a robots.txt fetch outcome."""
+    """Build a policy from a robots.txt fetch outcome (fail open on anything
+    that is not a clean ``2xx`` with rules)."""
     if 200 <= status < 300:
         return RobotsPolicy.from_body(body, user_agent)
-    if 400 <= status < 500:
-        return RobotsPolicy.allow_all()
-    # 5xx, or any non-2xx/4xx (e.g. a synthetic 0 for timeout) -> disallow all.
-    return RobotsPolicy.disallow_all()
+    # Anything else — 4xx, 5xx, a 3xx redirect we do not follow, or a synthetic
+    # 0 for a timeout/connection error — fails OPEN: an unretrievable robots.txt
+    # must never block a fetchable page.
+    return RobotsPolicy.allow_all()
 
 
 class RobotsCache:

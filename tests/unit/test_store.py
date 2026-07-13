@@ -80,6 +80,21 @@ def test_requeue_stuck(tmp_path: Path) -> None:
         assert "fetching" not in store.counts_by_status()
 
 
+def test_requeue_status(tmp_path: Path) -> None:
+    with _store(tmp_path) as store:
+        _add(store)
+        store.set_status(
+            "https://x.it",
+            UrlStatus.BLOCKED_ROBOTS_UNAVAILABLE,
+            last_error_code="E_ROBOTS_UNAVAIL",
+        )
+        assert store.counts_by_status()["blocked_robots_unavailable"] == 1
+        assert store.requeue_status(UrlStatus.BLOCKED_ROBOTS_UNAVAILABLE) == 1
+        counts = store.counts_by_status()
+        assert counts["pending"] == 1
+        assert "blocked_robots_unavailable" not in counts
+
+
 def test_reclassifiable_needs_evidence(tmp_path: Path) -> None:
     with _store(tmp_path) as store:
         _add(store, "https://withev.it")
