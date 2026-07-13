@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sitesift"
-version = "0.1.2"
+version = "0.1.3"
 description = "Collect structured, validated metadata for URLs at scale: site type, topic, language, quality flags — deterministic pipeline + LLM judgment."
 readme = "README.md"
 requires-python = ">=3.11"

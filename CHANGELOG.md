@@ -6,6 +6,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.1.3] - 2026-07-13
+
+### Fixed
+- **ReDoS in price extraction.** The `_PRICE` regex could backtrack O(n²) on a
+  page with a long run of digits (e.g. a multi-MiB numeric page); because
+  extraction runs inline on the event loop and `re` holds the GIL, one such page
+  **froze the entire batch run** for minutes. The digit-run branch is now
+  anchored (negative lookbehind) and possessive, and signal scans are bounded to
+  a 1 MiB prefix (`_TEXT_SCAN_MAX`) — a 5 M-digit page now extracts in <0.1 s.
+  Regression test in `tests/unit/test_extract.py`.
+
 ### Removed
 - Dead `RobotsPolicy.disallow_all` path and the unreachable `E_ROBOTS_UNAVAIL`
   branch in the fetcher — vestigial after v0.1.2's robots fail-open. The
