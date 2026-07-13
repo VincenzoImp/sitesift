@@ -17,8 +17,7 @@ import tldextract
 
 from . import __version__
 from .classify.ladder import ClassifyOutcome, Ladder
-from .classify.llm import build_classifier
-from .classify.rules import RuleEngine
+from .classify.llm import LLMClassifier, build_classifier
 from .config import Settings
 from .errors import ErrorCode
 from .extract.bundle import build_evidence
@@ -86,13 +85,13 @@ async def run_pipeline(
     out_path: str,
     db_path: str,
     default_scope: Scope = Scope.AUTO,
+    classifier: LLMClassifier | None = None,
 ) -> PipelineStats:
     store = FrontierStore(db_path)
-    rules = RuleEngine.load()
     taxonomy = load_taxonomy(taxonomy_id=settings.taxonomy.id, path=settings.taxonomy.path)
     tax_version = taxonomy.id
-    llm = build_classifier(settings, taxonomy)
-    ladder = Ladder(rules, settings, llm)
+    llm = classifier if classifier is not None else build_classifier(settings, taxonomy)
+    ladder = Ladder(settings, llm)
     stats = PipelineStats()
 
     # --- populate frontier ---
@@ -126,7 +125,7 @@ async def run_pipeline(
     fetcher = Fetcher(settings)
     writer = JsonlWriter(out_path)
     sem = anyio.Semaphore(max(1, settings.fetch.max_concurrency))
-    # Separate, tighter gate on concurrent LLM calls (None = rules-only run).
+    # Separate, tighter gate on concurrent LLM calls (None = no model / mode off).
     llm_sem = (
         anyio.Semaphore(max(1, settings.classify.max_llm_concurrency)) if llm is not None else None
     )
@@ -134,9 +133,7 @@ async def run_pipeline(
 
     async def worker(row: UrlRow) -> None:
         async with sem:
-            await _process(
-                row, store, fetcher, ladder, writer, llm_sem, tax_version, rules.version, stats
-            )
+            await _process(row, store, fetcher, ladder, writer, llm_sem, tax_version, stats)
 
     try:
         async with anyio.create_task_group() as tg:
@@ -157,18 +154,18 @@ async def reclassify(
     *,
     out_path: str,
     db_path: str,
+    classifier: LLMClassifier | None = None,
 ) -> PipelineStats:
     """Re-run classification from stored evidence, without re-fetching anything.
 
-    Use after changing the rules, taxonomy, prompt, or model — only the judgment
-    layer re-runs; the deterministic evidence is reused from the frontier.
+    Use after changing the taxonomy, prompt, or model — only the judgment layer
+    re-runs; the deterministic evidence is reused from the frontier.
     """
     store = FrontierStore(db_path)
-    rules = RuleEngine.load()
     taxonomy = load_taxonomy(taxonomy_id=settings.taxonomy.id, path=settings.taxonomy.path)
     tax_version = taxonomy.id
-    llm = build_classifier(settings, taxonomy)
-    ladder = Ladder(rules, settings, llm)
+    llm = classifier if classifier is not None else build_classifier(settings, taxonomy)
+    ladder = Ladder(settings, llm)
     writer = JsonlWriter(out_path)
     sem = anyio.Semaphore(max(1, settings.fetch.max_concurrency))
     llm_sem = (
@@ -191,7 +188,6 @@ async def reclassify(
                 method=outcome.method.value,
                 confidence=outcome.confidence,
                 taxonomy_version=tax_version,
-                rules_version=rules.version,
                 model_id=outcome.model_id,
                 prompt_sha256=outcome.prompt_sha256,
                 tokens_in=outcome.tokens_in,
@@ -205,7 +201,6 @@ async def reclassify(
                     outcome.method,
                     scope=row.scope,
                     taxonomy_version=tax_version,
-                    rules_version=rules.version,
                     sitesift_version=__version__,
                     model_id=outcome.model_id,
                     tokens_in=outcome.tokens_in,
@@ -246,7 +241,6 @@ async def _process(
     writer: JsonlWriter,
     llm_sem: anyio.Semaphore | None,
     tax_version: str,
-    rules_version: str,
     stats: PipelineStats,
 ) -> None:
     store.set_status(row.url_norm, UrlStatus.FETCHING)
@@ -276,7 +270,6 @@ async def _process(
             method=outcome.method.value,
             confidence=outcome.confidence,
             taxonomy_version=tax_version,
-            rules_version=rules_version,
             model_id=outcome.model_id,
             prompt_sha256=outcome.prompt_sha256,
             tokens_in=outcome.tokens_in,
@@ -290,7 +283,6 @@ async def _process(
                 outcome.method,
                 scope=row.scope,
                 taxonomy_version=tax_version,
-                rules_version=rules_version,
                 sitesift_version=__version__,
                 model_id=outcome.model_id,
                 tokens_in=outcome.tokens_in,

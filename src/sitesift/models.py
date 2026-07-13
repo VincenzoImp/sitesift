@@ -28,14 +28,14 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# --- Truncation defaults for the prompt-facing evidence serialization -------
-# Kept here (not imported from config) so models.py stays dependency-free and
-# importable in isolation; the CLI passes overrides from config when needed.
-PROMPT_TEXT_HEAD_CHARS = 1200
-PROMPT_TEXT_TAIL_CHARS = 300
-PROMPT_MAX_HEADINGS = 15
-PROMPT_MAX_LIST_ITEMS = 10
-PROMPT_META_DESCRIPTION_CHARS = 400
+# --- Caps for the prompt-facing evidence serialization ----------------------
+# The model is the decision engine, so it receives *every* canonical fact. The
+# only caps here are upper bounds that keep a pathological page from blowing up
+# the token bill — generous enough that normal pages pass through whole.
+PROMPT_TEXT_MAX_CHARS = 12000  # full de-boilerplated main text, hard upper bound
+PROMPT_MAX_HEADINGS = 60
+PROMPT_MAX_LIST_ITEMS = 40
+PROMPT_META_DESCRIPTION_CHARS = 600
 
 
 class Scope(StrEnum):
@@ -48,12 +48,16 @@ class Scope(StrEnum):
 
 
 class ClassifyMethod(StrEnum):
-    """How a verdict was reached (recorded for provenance and metrics)."""
+    """How a verdict was reached (recorded for provenance and metrics).
 
-    RULES = "rules"
+    Judgment is always the LLM's. ``blocked`` marks the one deterministic
+    short-circuit: a non-content page (dead/parked/soft_404/non-HTML) or a run
+    with classification disabled, where no model is worth spending.
+    """
+
+    BLOCKED = "blocked"
     LLM_SMALL = "llm_small"
     LLM_LARGE = "llm_large"
-    AGENT = "agent"
     FAILED = "failed_classify"
 
 
@@ -247,14 +251,11 @@ class Evidence(BaseModel):
 
     # --- Type signals ------------------------------------------------------
     feeds: list[str] = Field(default_factory=list)
-    has_sitemap: bool | None = None
     cms: str | None = None
     ecommerce_platform: str | None = None
     price_patterns: int = 0
     has_cart_link: bool = False
     has_login_form: bool = False
-    bylines: int = 0
-    dates_in_listing: int = 0
     article_link_density: float = 0.0
     paywall_markers: list[str] = Field(default_factory=list)
     ad_networks: list[str] = Field(default_factory=list)
@@ -269,46 +270,67 @@ class Evidence(BaseModel):
     def to_prompt_json(
         self,
         *,
-        text_head: int = PROMPT_TEXT_HEAD_CHARS,
-        text_tail: int = PROMPT_TEXT_TAIL_CHARS,
+        text_max: int = PROMPT_TEXT_MAX_CHARS,
         max_headings: int = PROMPT_MAX_HEADINGS,
         max_list: int = PROMPT_MAX_LIST_ITEMS,
     ) -> dict[str, Any]:
-        """Truncated, relevance-ordered view for the LLM (~2.5k tokens).
+        """The full canonical-fact view for the LLM.
 
-        Numeric and boolean fields cost almost nothing, so they are all kept;
-        long text is head+tail truncated (the head says what it's about, the
-        tail often holds the footer that says who it is).
+        The model is the decision engine, so it gets *every* extracted fact —
+        identity (incl. host and TLD), HTTP, all head/structured/language
+        signals, page-structure counts, type signals, and the full
+        de-boilerplated main text. Caps are upper bounds only, to keep a
+        pathological page from exploding the token bill; normal pages pass
+        through whole.
         """
         return {
             "url": self.url_final,
+            "url_requested": self.url_raw,
             "domain": self.domain,
-            "http": {"status": self.status, "content_type": self.content_type},
+            "host": self.host,
+            "tld": self.domain.split(".", 1)[1] if "." in self.domain else self.domain,
+            "path_depth": self.path_depth,
+            "redirects": self.redirect_chain[:max_list],
+            "cross_domain_redirect": self.cross_domain_redirect,
+            "http": {
+                "status": self.status,
+                "content_type": self.content_type,
+                "server": self.server,
+            },
             "title": self.title,
             "meta_description": _clip(self.meta_description, PROMPT_META_DESCRIPTION_CHARS),
+            "meta_keywords": self.meta_keywords[:max_list],
             "meta_generator": self.meta_generator,
+            "canonical": self.canonical,
             "og": self.og,
+            "twitter_card": self.twitter_card,
             "jsonld_types": self.jsonld_types[:max_list],
             "jsonld_publisher": self.jsonld_publisher,
+            "jsonld_date_published": self.jsonld_date_published,
+            "microdata_types": self.microdata_types[:max_list],
+            "rdfa_types": self.rdfa_types[:max_list],
             "html_lang": self.html_lang,
+            "og_locale": self.og_locale,
             "hreflang": self.hreflang[:max_list],
             "detected_lang": self.detected_lang,
-            "headings": [_clip(h, 80) for h in self.headings[:max_headings]],
-            "text_main": _head_tail(self.text_main, text_head, text_tail),
+            "detected_lang_conf": round(self.detected_lang_conf, 3),
+            "headings": [_clip(h, 120) for h in self.headings[:max_headings]],
+            "text_main": _clip(self.text_main, text_max),
             "text_len_chars": self.text_len_chars,
             "links": {"internal": self.n_links_internal, "external": self.n_links_external},
             "n_forms": self.n_forms,
             "n_images": self.n_images,
+            "n_scripts": self.n_scripts,
             "has_search_form": self.has_search_form,
             "has_login_form": self.has_login_form,
             "has_cart_link": self.has_cart_link,
             "price_patterns": self.price_patterns,
             "article_link_density": round(self.article_link_density, 3),
-            "bylines": self.bylines,
             "feeds": self.feeds[:max_list],
             "cms": self.cms,
             "ecommerce_platform": self.ecommerce_platform,
             "ad_networks": self.ad_networks[:max_list],
+            "analytics": self.analytics[:max_list],
             "paywall_markers": self.paywall_markers[:max_list],
             "js_only": self.js_only,
             "boilerplate_ratio": round(self.boilerplate_ratio, 3),
@@ -319,9 +341,3 @@ def _clip(text: str | None, limit: int) -> str | None:
     if text is None:
         return None
     return text if len(text) <= limit else text[:limit]
-
-
-def _head_tail(text: str, head: int, tail: int) -> str:
-    if len(text) <= head + tail:
-        return text
-    return f"{text[:head]} […] {text[-tail:]}"

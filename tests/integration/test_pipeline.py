@@ -1,21 +1,24 @@
-"""End-to-end pipeline test (rules-only) against a local HTTP server.
+"""End-to-end pipeline test with a deterministic, offline LLM (via fake_classifier).
 
-Verifies that fetch -> extract -> rules classify -> JSONL works, that robots
-blocks are recorded, and that a second run resumes (classifies nothing new).
+Verifies fetch -> extract -> LLM classify -> JSONL, that robots blocks are
+recorded, that a second run resumes (classifies nothing new), and that
+reclassify re-runs judgment from stored evidence without touching the network.
 """
 
 from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
+from sitesift.classify.llm.base import LLMVerdict
+from sitesift.classify.llm.engine import LLMClassifier
 from sitesift.config import Settings
-from sitesift.models import Scope
+from sitesift.models import Scope, SiteType
 from sitesift.pipeline import reclassify, run_pipeline
 
 _SHOP = (
@@ -32,6 +35,12 @@ _NEWS = (
     b"</head><body><h1>Headlines</h1><p>Today the world saw many important events unfold.</p>"
     b"</body></html>"
 )
+
+# Deterministic verdicts keyed on the page title present in the evidence JSON.
+_RULES = [
+    ("Daily News", LLMVerdict(site_type=SiteType.NEWS_OUTLET, site_type_confidence=0.95)),
+    ("Shop", LLMVerdict(site_type=SiteType.ECOMMERCE, site_type_confidence=0.95)),
+]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -77,7 +86,6 @@ def _settings(port: int) -> Settings:
             "timeout_read": 3.0,
             "timeout_total": 5.0,
         },
-        classify={"mode": "off"},
     )
 
 
@@ -85,14 +93,21 @@ def _records(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-async def test_pipeline_rules_only(server: int, tmp_path: Path) -> None:
+async def test_pipeline_classifies_via_llm(
+    server: int, tmp_path: Path, fake_classifier: Callable[..., LLMClassifier]
+) -> None:
     out = tmp_path / "results.jsonl"
     db = tmp_path / "state.db"
     base = f"http://127.0.0.1:{server}"
     lines = [f"{base}/", f"{base}/news", f"{base}/blocked"]
 
     stats = await run_pipeline(
-        _settings(server), lines, out_path=str(out), db_path=str(db), default_scope=Scope.AUTO
+        _settings(server),
+        lines,
+        out_path=str(out),
+        db_path=str(db),
+        default_scope=Scope.AUTO,
+        classifier=fake_classifier(_RULES),
     )
     assert stats.added == 3
     assert stats.classified == 2
@@ -104,35 +119,51 @@ async def test_pipeline_rules_only(server: int, tmp_path: Path) -> None:
         by_type[rec["url"].rsplit("/", 1)[-1] or "root"] = rec
 
     assert by_type["root"]["site"]["site_type"] == "ecommerce"
-    assert by_type["root"]["site"]["method"] == "rules"
+    assert by_type["root"]["site"]["method"] == "llm_small"  # the LLM decided, not a rule
     assert by_type["news"]["site"]["site_type"] == "news_outlet"
     assert by_type["blocked"]["flags"]["blocked_robots"] is True
 
-    # provenance is recorded for reproducibility
-    assert by_type["root"]["provenance"]["rules_version"] == "1"
-    assert by_type["root"]["provenance"]["content_sha256"]
+    # provenance records the model and content hash, and no longer any rules_version
+    prov = by_type["root"]["provenance"]
+    assert prov["model_id"] == "claude-haiku-4-5"
+    assert prov["content_sha256"]
+    assert "rules_version" not in prov
 
 
-async def test_pipeline_resumes(server: int, tmp_path: Path) -> None:
+async def test_pipeline_resumes(
+    server: int, tmp_path: Path, fake_classifier: Callable[..., LLMClassifier]
+) -> None:
     out = tmp_path / "results.jsonl"
     db = tmp_path / "state.db"
     base = f"http://127.0.0.1:{server}"
     lines = [f"{base}/", f"{base}/news"]
 
     first = await run_pipeline(
-        _settings(server), lines, out_path=str(out), db_path=str(db), default_scope=Scope.AUTO
+        _settings(server),
+        lines,
+        out_path=str(out),
+        db_path=str(db),
+        default_scope=Scope.AUTO,
+        classifier=fake_classifier(_RULES),
     )
     assert first.classified == 2
 
     # Second run: same DB, nothing pending -> no new work.
     second = await run_pipeline(
-        _settings(server), lines, out_path=str(out), db_path=str(db), default_scope=Scope.AUTO
+        _settings(server),
+        lines,
+        out_path=str(out),
+        db_path=str(db),
+        default_scope=Scope.AUTO,
+        classifier=fake_classifier(_RULES),
     )
     assert second.added == 0
     assert second.classified == 0
 
 
-async def test_reclassify_from_stored_evidence(server: int, tmp_path: Path) -> None:
+async def test_reclassify_from_stored_evidence(
+    server: int, tmp_path: Path, fake_classifier: Callable[..., LLMClassifier]
+) -> None:
     db = tmp_path / "state.db"
     base = f"http://127.0.0.1:{server}"
 
@@ -143,11 +174,17 @@ async def test_reclassify_from_stored_evidence(server: int, tmp_path: Path) -> N
         out_path=str(tmp_path / "first.jsonl"),
         db_path=str(db),
         default_scope=Scope.AUTO,
+        classifier=fake_classifier(_RULES),
     )
 
     # Then: re-classify from stored evidence with NO server access at all.
     out2 = tmp_path / "reclass.jsonl"
-    stats = await reclassify(_settings(server), out_path=str(out2), db_path=str(db))
+    stats = await reclassify(
+        _settings(server),
+        out_path=str(out2),
+        db_path=str(db),
+        classifier=fake_classifier(_RULES),
+    )
     assert stats.classified == 2
     types = {r["site"]["site_type"] for r in _records(out2)}
     assert types == {"ecommerce", "news_outlet"}

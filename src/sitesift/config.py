@@ -41,13 +41,14 @@ class FetchConfig(BaseModel):
 
 
 class ClassifyConfig(BaseModel):
-    mode: str = "sync"  # sync | off
+    mode: str = "sync"  # sync = LLM classifies every URL | off = extract facts only
     provider: str = "anthropic"  # anthropic | ollama
     base_url: str = ""  # for ollama/self-hosted; empty = provider default
     model_small: str = "claude-haiku-4-5"
     model_large: str = "claude-sonnet-5"
     max_llm_concurrency: int = 8
-    accept_threshold_rules: float = 0.90
+    # The small model's verdict is accepted at >= small; otherwise the large model
+    # runs and is accepted at >= large. Below both, the verdict goes to a human.
     accept_threshold_small: float = 0.75
     accept_threshold_large: float = 0.60
 

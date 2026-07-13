@@ -10,20 +10,19 @@ without reworking earlier phases.
 - **M1 — Safe & polite fetch**: URL normalization, SSRF guard (IP pinning,
   metadata/tunnel blocking, rebinding-tested), robots (protego + Google
   semantics), per-host rate limiting (≤1 concurrent/host), streaming fetch with
-  hard body/decompression limits, content-addressed blob cache, SQLite frontier.
+  hard body/decompression limits, SQLite frontier.
 - **M2 — Extraction**: full `Evidence` bundle (selectolax + JSON-LD + trafilatura
   main text + deterministic language via py3langid + CMS/e-commerce/ad
   fingerprints + anti-injection sanitization) and deterministic flags.
-- **M3 — Rules + output (`v0.1.0`)**: 26-node default taxonomy, high-precision
-  `site_type` rule engine, JSONL + SQLite output, end-to-end `sitesift run`
-  pipeline, and an offline rules eval (`sitesift eval`) that gates
-  `rules_coverage ≥ 0.30` and `rules_precision ≥ 0.95` in CI. **Useful with no
-  LLM.**
-- **M4 — LLM ladder (`v0.2.0`)**: rules → LLM small → LLM large → needs_human,
-  with **Anthropic** (Haiku 4.5 → Sonnet 5, `messages.parse`, prompt caching) and
-  **Ollama** (local, JSON-schema output) providers, taxonomy-hierarchy-validated
-  structured output, and full provenance. Verified live against local models;
-  the types rules can't cover (`corporate`, `blog_personal`, …) are now handled.
+- **M3 — Taxonomy + output**: 26-node default taxonomy, JSONL + SQLite output,
+  and the end-to-end `sitesift run` pipeline (normalize → fetch → extract →
+  classify), resumable via the SQLite frontier.
+- **M4 — LLM classification**: the LLM decides `site_type` **and** topic on every
+  content URL (LLM small → LLM large → needs_human), fed the full canonical fact
+  bundle, with **Anthropic** (Haiku 4.5 → Sonnet 5, `messages.parse`, prompt
+  caching) and **Ollama** (local, JSON-schema output) providers,
+  taxonomy-hierarchy-validated structured output, and full provenance. Non-content
+  pages short-circuit to `blocked`. Verified live against local models.
 - **Hardening pass**: fetch retries with exponential backoff (honouring
   `Retry-After`), crash-recovery requeue of interrupted URLs on `--resume`,
   `max_llm_concurrency` gate, `reclassify` (re-classify from stored evidence with
@@ -32,10 +31,10 @@ without reworking earlier phases.
 
 ## Deferred (post-MVP)
 
-- **Real golden set**: the eval currently uses a small *synthetic* fixture set.
-  Replace with ~200 hand-labeled live URLs, double-labeled with Cohen's κ, before
-  trusting metrics on real traffic. Add LLM-path accuracy (`site_type_accuracy`,
-  `tier1_accuracy`, calibration/ECE) once the golden set exists.
+- **Real golden set**: the eval currently uses a small *synthetic* fixture set and
+  reports `site_type_accuracy` through the LLM. Replace with ~200 hand-labeled live
+  URLs (double-labeled, Cohen's κ) with Tier-1 topic labels (`expected_topic_tier1`),
+  and add calibration (ECE) before trusting metrics on real traffic.
 - **Domain-level classification + `--scope` behavior**: today every URL is
   classified as a page; `--scope` is recorded but not acted upon (no
   site-vs-page fetch, no per-domain homepage dedup / `DomainProfile`).

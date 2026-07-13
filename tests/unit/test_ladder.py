@@ -1,4 +1,9 @@
-"""Ladder escalation tests with a mocked LLM client (offline, deterministic)."""
+"""Ladder escalation tests with a mocked LLM client (offline, deterministic).
+
+The LLM is the decision engine: every non-blocking page goes to the model, the
+small rung first and the large rung only when the small one is not confident
+enough. A blocking flag short-circuits to ``blocked`` with no model call.
+"""
 
 from __future__ import annotations
 
@@ -7,13 +12,11 @@ from datetime import UTC, datetime
 from sitesift.classify.ladder import Ladder
 from sitesift.classify.llm.base import LLMResponse, LLMTopic, LLMUsage, LLMVerdict
 from sitesift.classify.llm.engine import LLMClassifier
-from sitesift.classify.rules import RuleEngine
 from sitesift.config import Settings
 from sitesift.models import ClassifyMethod, Evidence, Flags, SiteType
 from sitesift.taxonomy.loader import load_taxonomy
 
 FETCHED = datetime(2026, 7, 10, tzinfo=UTC)
-RULES = RuleEngine.load()
 TAX = load_taxonomy()
 
 
@@ -58,22 +61,14 @@ def _ev(**over: object) -> Evidence:
 
 def _ladder(client: FakeClient) -> Ladder:
     settings = Settings(classify={"mode": "sync"})
-    return Ladder(RULES, settings, LLMClassifier(client, TAX))
+    return Ladder(settings, LLMClassifier(client, TAX))
 
 
 def test_blocking_flag_spends_nothing() -> None:
     client = FakeClient()  # no responses queued -> must not be called
     outcome = _ladder(client).classify(_ev(), Flags(dead=True))
-    assert outcome.method is ClassifyMethod.RULES
+    assert outcome.method is ClassifyMethod.BLOCKED
     assert outcome.verdict.site_type is None
-    assert client.calls == []
-
-
-def test_rule_wins_before_llm() -> None:
-    client = FakeClient()
-    outcome = _ladder(client).classify(_ev(host="agency.gov"), Flags())
-    assert outcome.method is ClassifyMethod.RULES
-    assert outcome.verdict.site_type is SiteType.GOVERNMENT
     assert client.calls == []
 
 
@@ -102,12 +97,21 @@ def test_both_low_needs_human() -> None:
     assert outcome.needs_human is True
 
 
-def test_llm_error_falls_back_to_rules_only() -> None:
+def test_llm_error_needs_human() -> None:
     from sitesift.errors import ClassifyError, ErrorCode
 
     client = FakeClient(ClassifyError(ErrorCode.E_LLM_INVALID, "boom"))
-    outcome = _ladder(client).classify(_ev(), Flags())  # no rule matches
-    assert outcome.method is ClassifyMethod.RULES
+    outcome = _ladder(client).classify(_ev(), Flags())
+    assert outcome.method is ClassifyMethod.FAILED
+    assert outcome.needs_human is True
+    assert outcome.verdict.site_type is None
+
+
+def test_no_model_blocks_and_defers() -> None:
+    # mode=off: facts are extracted but nothing is classified.
+    ladder = Ladder(Settings(classify={"mode": "off"}), None)
+    outcome = ladder.classify(_ev(), Flags())
+    assert outcome.method is ClassifyMethod.BLOCKED
     assert outcome.needs_human is True
     assert outcome.verdict.site_type is None
 

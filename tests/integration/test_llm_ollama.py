@@ -75,8 +75,8 @@ def test_ecommerce_classified() -> None:
     assert conf > 0.0
 
 
-def test_blog_classified_where_rules_cannot() -> None:
-    # blog_personal has no rule — this exercises the LLM rung specifically.
+def test_blog_classified() -> None:
+    # blog_personal is a content-only judgment — a good exercise for the LLM.
     site_type, conf = _classify(_BLOG)
     assert site_type is SiteType.BLOG_PERSONAL
     assert conf > 0.0

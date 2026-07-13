@@ -53,7 +53,12 @@ cannot tell. An honest null beats a guess.
 - Always distinguish what the site DOES (site_type) from what it is ABOUT \
 (topics). A sports newspaper is site_type=news_outlet, topic=sports. A shop \
 selling football boots is site_type=ecommerce, topic=sports.
-- Do not infer the topic from the domain name alone.
+- Weigh every field in the evidence together — the domain and its TLD, the \
+platform/CMS and e-commerce markers, the JSON-LD/microdata/RDFa types, feeds, \
+headings, and the page text are all signals. Strong markers (a .gov TLD, a \
+Shopify platform, a NewsArticle type) are evidence, not proof: corroborate them \
+with the content and do not over-rely on any single field. Base the topic on the \
+content, not the domain name alone.
 - confidence is your subjective probability an expert annotator would agree. Be \
 calibrated: 0.95 means you expect to be wrong about 1 time in 20.
 - Cite the specific evidence fields that drove your decision in `evidence`.

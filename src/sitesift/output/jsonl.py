@@ -22,7 +22,6 @@ def build_record(
     *,
     scope: str,
     taxonomy_version: str,
-    rules_version: str,
     sitesift_version: str,
     model_id: str | None = None,
     tokens_in: int | None = None,
@@ -63,7 +62,6 @@ def build_record(
         "provenance": {
             "sitesift_version": sitesift_version,
             "extractor_version": ev.extractor_version,
-            "rules_version": rules_version,
             "taxonomy_version": taxonomy_version,
             "model_id": model_id,
             "tokens_in": tokens_in,
@@ -92,7 +90,7 @@ def build_error_record(
         "scope": scope,
         "flags": flags.model_dump(),
         "language": None,
-        "site": {"site_type": "unknown", "method": "rules", "evidence": error_code},
+        "site": {"site_type": "unknown", "method": "blocked", "evidence": error_code},
         "provenance": {"sitesift_version": sitesift_version, "error_code": error_code},
     }
 

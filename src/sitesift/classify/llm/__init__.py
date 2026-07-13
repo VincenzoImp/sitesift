@@ -1,7 +1,8 @@
 """LLM providers + factory.
 
 ``build_classifier(settings, taxonomy)`` returns an :class:`LLMClassifier` for the
-configured provider, or ``None`` when ``classify.mode == "off"`` (rules-only).
+configured provider, or ``None`` when ``classify.mode == "off"`` (extract-only:
+facts are collected but no classification runs).
 """
 
 from __future__ import annotations

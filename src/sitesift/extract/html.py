@@ -1,7 +1,7 @@
 """Structural HTML extraction with selectolax (head, links, forms, headings).
 
 Pure and fast: no network, no LLM. Produces the raw structural signals the
-evidence bundle and the rule engine consume.
+evidence bundle carries to the classifier.
 """
 
 from __future__ import annotations

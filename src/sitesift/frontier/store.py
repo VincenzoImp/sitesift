@@ -97,7 +97,6 @@ CREATE TABLE IF NOT EXISTS page_records (
   model_id         TEXT,
   prompt_sha256    TEXT,
   taxonomy_version TEXT NOT NULL,
-  rules_version    TEXT NOT NULL,
   tokens_in        INTEGER,
   tokens_out       INTEGER,
   classified_at    TEXT NOT NULL
@@ -254,7 +253,6 @@ class FrontierStore:
         method: str,
         confidence: float,
         taxonomy_version: str,
-        rules_version: str,
         model_id: str | None = None,
         prompt_sha256: str | None = None,
         tokens_in: int | None = None,
@@ -267,8 +265,8 @@ class FrontierStore:
             self._conn.execute(
                 """INSERT OR REPLACE INTO page_records
                    (url_norm, domain, verdict, method, confidence, model_id, prompt_sha256,
-                    taxonomy_version, rules_version, tokens_in, tokens_out, classified_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    taxonomy_version, tokens_in, tokens_out, classified_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     url_norm,
                     domain,
@@ -278,7 +276,6 @@ class FrontierStore:
                     model_id,
                     prompt_sha256,
                     taxonomy_version,
-                    rules_version,
                     tokens_in,
                     tokens_out,
                     now,

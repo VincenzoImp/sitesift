@@ -4,7 +4,7 @@ Commands are thin wrappers that load config and call into the pipeline modules:
 ``doctor`` (health check), ``init`` (starter config), ``run`` (full pipeline),
 ``reclassify`` (re-run classification from stored evidence, no re-fetch),
 ``status`` (frontier counts), ``taxonomy`` (inspect the topic tree), and
-``eval`` (offline rule/ladder metrics).
+``eval`` (LLM accuracy on the golden set).
 """
 
 from __future__ import annotations
@@ -140,7 +140,7 @@ def run(
     out: str = typer.Option("out/results.jsonl", "--out", help="JSONL output path"),
     db: str = typer.Option(".sitesift/state.db", "--db", help="frontier/results SQLite DB"),
     scope: str = typer.Option("auto", "--scope", help="tag recorded in output (metadata only)"),
-    llm: str = typer.Option("off", "--llm", help="off (rules-only) | sync (LLM ladder)"),
+    llm: str = typer.Option("off", "--llm", help="off (extract only) | sync (LLM classifies)"),
     provider: str = typer.Option("", "--provider", help="anthropic | ollama (default: config)"),
     base_url: str = typer.Option("", "--base-url", help="LLM base URL (ollama/self-hosted)"),
     model_small: str = typer.Option("", "--model-small", help="override small model"),
@@ -188,13 +188,13 @@ def run(
 def reclassify(
     out: str = typer.Option("out/results.jsonl", "--out", help="JSONL output path"),
     db: str = typer.Option(".sitesift/state.db", "--db", help="frontier/results SQLite DB"),
-    llm: str = typer.Option("off", "--llm", help="off (rules-only) | sync (LLM ladder)"),
+    llm: str = typer.Option("off", "--llm", help="off (extract only) | sync (LLM classifies)"),
     provider: str = typer.Option("", "--provider", help="anthropic | ollama (default: config)"),
     base_url: str = typer.Option("", "--base-url", help="LLM base URL (ollama/self-hosted)"),
     model_small: str = typer.Option("", "--model-small", help="override small model"),
     model_large: str = typer.Option("", "--model-large", help="override large model"),
 ) -> None:
-    """Re-classify from stored evidence — no re-fetch (after a rules/prompt/model change)."""
+    """Re-classify from stored evidence — no re-fetch (after a prompt/model/taxonomy change)."""
     import anyio
 
     from .pipeline import reclassify as run_reclassify
@@ -282,50 +282,48 @@ def init() -> None:
 def eval(
     golden: str = typer.Option("eval/golden.jsonl", "--golden"),
     fixtures: str = typer.Option("eval/fixtures", "--fixtures"),
-    llm: bool = typer.Option(False, "--llm", help="also run the full-ladder (LLM) eval"),
-    provider: str = typer.Option("", "--provider", help="anthropic | ollama (with --llm)"),
-    base_url: str = typer.Option("", "--base-url", help="LLM base URL (with --llm)"),
-    model: str = typer.Option("", "--model", help="model for both rungs (with --llm)"),
+    provider: str = typer.Option("", "--provider", help="anthropic | ollama (default: config)"),
+    base_url: str = typer.Option("", "--base-url", help="LLM base URL (ollama/self-hosted)"),
+    model: str = typer.Option("", "--model", help="model for both rungs"),
+    min_accuracy: float = typer.Option(
+        0.0, "--min-accuracy", help="exit 3 if site_type_accuracy is below this"
+    ),
 ) -> None:
-    """Run the offline rules eval (exit 3 if below target); optionally the LLM eval."""
-    from .evalharness import format_report, run_rules_eval
+    """Classify the golden fixtures through the LLM ladder and report accuracy.
+
+    Requires a provider (free against a local Ollama). Judgment is the LLM's, so
+    numbers vary run to run; pass --min-accuracy to use it as a gate.
+    """
+    from .classify.ladder import Ladder
+    from .classify.llm import build_classifier
+    from .evalharness import format_ladder_report, run_ladder_eval
+    from .taxonomy.loader import load_taxonomy
 
     settings = load_config()
-    report = run_rules_eval(
-        golden_path=golden,
-        fixtures_dir=fixtures,
-        threshold=settings.classify.accept_threshold_rules,
-    )
-    console.print(format_report(report))
-    below = report.rules_precision < 0.95 or report.rules_coverage < 0.30
+    settings.classify.mode = "sync"
+    if provider:
+        settings.classify.provider = provider
+    if base_url:
+        settings.classify.base_url = base_url
+    if model:
+        settings.classify.model_small = model
+        settings.classify.model_large = model
 
-    if llm:
-        from .classify.ladder import Ladder
-        from .classify.llm import build_classifier
-        from .classify.rules import RuleEngine
-        from .evalharness import format_ladder_report, run_ladder_eval
-        from .taxonomy.loader import load_taxonomy
+    tax = load_taxonomy(taxonomy_id=settings.taxonomy.id, path=settings.taxonomy.path)
+    classifier = build_classifier(settings, tax)
+    if classifier is None:  # unreachable (mode forced to sync), but keep the type honest
+        console.print("[red]eval needs a classifier[/red]")
+        raise typer.Exit(2)
+    ladder = Ladder(settings, classifier)
+    console.print("[dim]running ladder eval (LLM)…[/dim]")
+    report = run_ladder_eval(ladder=ladder, golden_path=golden, fixtures_dir=fixtures)
+    console.print(format_ladder_report(report))
+    classifier.close()
 
-        settings.classify.mode = "sync"
-        if provider:
-            settings.classify.provider = provider
-        if base_url:
-            settings.classify.base_url = base_url
-        if model:
-            settings.classify.model_small = model
-            settings.classify.model_large = model
-
-        tax = load_taxonomy(taxonomy_id=settings.taxonomy.id, path=settings.taxonomy.path)
-        classifier = build_classifier(settings, tax)
-        ladder = Ladder(RuleEngine.load(), settings, classifier)
-        console.print("[dim]running full-ladder eval (LLM)…[/dim]")
-        lreport = run_ladder_eval(ladder=ladder, golden_path=golden, fixtures_dir=fixtures)
-        console.print(format_ladder_report(lreport))
-        if classifier is not None:
-            classifier.close()
-
-    if below:
-        console.print("[red]below target[/red] (coverage < 0.30 or precision < 0.95)")
+    if report.site_type_accuracy < min_accuracy:
+        console.print(
+            f"[red]below target[/red] accuracy {report.site_type_accuracy:.2f} < {min_accuracy:.2f}"
+        )
         raise typer.Exit(3)
 
 
@@ -339,7 +337,8 @@ max_concurrency = 200
 min_host_delay = 1.0
 
 [classify]
-mode = "off"  # rules-only until M4 lands the LLM ladder
+mode = "sync"      # LLM classifies every URL; "off" = extract facts only
+provider = "anthropic"  # anthropic | ollama
 
 [taxonomy]
 id = "sitesift-custom-1"

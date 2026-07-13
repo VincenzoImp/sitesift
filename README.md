@@ -7,7 +7,7 @@ Given a set of URLs, `sitesift` produces for each a **structured, validated, rep
 - **what language** it is in (deterministic, not guessed by an LLM)
 - **technical metadata** (CMS, feeds, paywall, schema.org, ad networks, …)
 - **quality flags** (`parked`, `dead`, `spam`, `adult`, `login_wall`, …)
-- **how confident** it is and **by which method** each decision was made (`rules`, `llm_small`, `llm_large`)
+- **how confident** it is and **by which method** each decision was made (`llm_small`, `llm_large`, or `blocked` for non-content pages)
 
 It is **not** a recursive crawler (one page per URL), does not render JavaScript, and produces indicative flags — not certified brand-safety.
 
@@ -15,23 +15,23 @@ It is **not** a recursive crawler (one page per URL), does not render JavaScript
 
 Extracting a page's text and metadata is a solved problem (`sitesift` reuses [`trafilatura`](https://github.com/adbar/trafilatura)). The gap is turning that evidence into a **structured judgment** — site type, topic, and quality flags — cheaply, reproducibly, and at scale. `sitesift` fills that gap with a strict split:
 
-- a **deterministic layer** (normalize → fetch → extract) that never calls an LLM, and
-- a **judgment layer** (rules → small LLM → large LLM) that reads only pre-computed evidence.
+- a **deterministic layer** (normalize → fetch → extract) that never calls an LLM — its only job is to produce *all* the canonical facts of a page, and
+- a **judgment layer** where the **LLM is the decision engine**: it reads the full evidence bundle and decides `site_type` and topic for **every** URL — a cheap model first, escalating to a stronger one only when it is not confident.
 
-That split is what makes resume-after-crash, offline tests, re-classification without re-fetching, and prompt caching all work.
+The only decision the deterministic layer makes is to *skip* a page with no content (dead / parked / soft-404 / non-HTML → `blocked`), so no model call is wasted. That split is what makes resume-after-crash, offline tests, re-classification without re-fetching, and prompt caching all work.
 
 ## Architecture
 
 ```
-1 NORMALIZE ──> 2 FETCH ──> 3 EXTRACT ──> 4 CLASSIFY
-  dedup          robots       trafilatura    rules
-  eTLD+1         SSRF guard    JSON-LD        LLM small (Haiku 4.5)
-  filters        rate limit    langid         LLM large (Sonnet 5)
-     │              │            │               │
- frontier.db   blob store   evidence.db    results.jsonl + results.db
+1 NORMALIZE ──> 2 FETCH ──> 3 EXTRACT ──────> 4 CLASSIFY (LLM decides)
+  dedup          robots       trafilatura        LLM small (Haiku 4.5)
+  eTLD+1         SSRF guard    JSON-LD            ↳ escalate if unsure
+  filters        rate limit    langid + facts    LLM large (Sonnet 5)
+     │              │              │                     │
+ frontier.db     (polite)     evidence.db      results.jsonl + results.db
 ```
 
-Each phase is an independent CLI command; `sitesift run` orchestrates them.
+The deterministic layer hands the LLM the whole fact bundle (host/TLD, JSON-LD, platform markers, feeds, prices, the full main text, …); the model weighs it all. `sitesift run` orchestrates every phase.
 
 ## Install (once implemented)
 
@@ -46,19 +46,20 @@ sitesift doctor                     # verify environment
 sitesift init                       # write a starter sitesift.toml
 export SITESIFT_IDENTITY__CONTACT="you@example.com"   # required to fetch
 
-# Rules-only (no LLM, no cost):
-sitesift run urls.txt               # → out/results.jsonl
-
-# With the LLM ladder (local Ollama, or Anthropic):
+# Classify every URL with the LLM (local Ollama — free):
 sitesift run urls.txt --llm sync --provider ollama \
   --base-url http://localhost:11434 --model-small gemma4:12b --model-large gemma4:12b
+# …or with Anthropic:
 sitesift run urls.txt --llm sync --provider anthropic   # needs ANTHROPIC_API_KEY + [anthropic] extra
 
-# Re-classify from stored evidence after changing rules/prompt/model (no re-fetch):
+# Extract the facts only, no classification (no LLM, no cost):
+sitesift run urls.txt --llm off     # → out/results.jsonl
+
+# Re-classify from stored evidence after changing prompt/model/taxonomy (no re-fetch):
 sitesift reclassify --llm sync --provider ollama --base-url http://localhost:11434
 
 sitesift status                     # frontier counts
-sitesift eval                       # offline rule metrics
+sitesift eval --provider ollama --base-url http://localhost:11434 --model gemma4:12b   # LLM accuracy on the golden set
 sitesift taxonomy show sports       # inspect the topic tree
 ```
 

@@ -1,7 +1,7 @@
 """Full pipeline end-to-end WITH the LLM ladder, against a local server + Ollama.
 
-Serves a corporate page (no rule matches it), so classification must go through
-the LLM rung. Skipped when Ollama is unreachable.
+Serves a corporate page and checks the LLM classifies it end to end. Skipped when
+Ollama is unreachable.
 """
 
 from __future__ import annotations
@@ -102,7 +102,7 @@ async def test_pipeline_with_llm(server: int, tmp_path: Path) -> None:
     assert stats.classified == 1
 
     record = json.loads(out.read_text().splitlines()[0])
-    # A corporate page has no rule, so the LLM rung must have handled it.
+    # Every content URL is decided by the LLM.
     assert record["site"]["method"] in ("llm_small", "llm_large")
     assert record["site"]["site_type"] == "corporate"
     assert record["provenance"]["model_id"] == _MODEL

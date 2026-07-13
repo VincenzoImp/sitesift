@@ -34,54 +34,55 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   bundle}.py` — full `Evidence` bundle (JSON-LD, deterministic language via
   py3langid, CMS/e-commerce/ad fingerprints, anti-injection sanitization) plus
   deterministic flags.
-- Classification + output (M3 core): `taxonomy/loader.py` + default 26-node
-  `taxonomy_custom.yaml`, `classify/rules.py` + `data/rules.yaml`
-  (high-precision `site_type` rules), `classify/ladder.py` (rules-only for now,
-  LLM rungs pluggable), `output/jsonl.py`, and `pipeline.py` orchestrating the
-  full run. `sitesift run` produces JSONL end-to-end with no LLM; `--resume`
-  skips classified URLs (integration-tested).
-- Offline eval harness (`sitesift eval` / `eval/run_eval.py`) over a synthetic
-  golden set — gates `rules_coverage ≥ 0.30` and `rules_precision ≥ 0.95` in CI
-  (currently 0.80 / 1.00).
-- Release scaffolding: GitHub Actions CI (lint + format + typecheck + test +
-  eval, all offline), `Makefile`, and docs (`roadmap`, `politeness`, `site_types`).
+- Classification + output: `taxonomy/loader.py` + default 26-node
+  `taxonomy_custom.yaml`, `classify/ladder.py` (the LLM decision ladder),
+  `output/jsonl.py`, and `pipeline.py` orchestrating the full run. `sitesift run`
+  produces JSONL end-to-end; `--resume` skips classified URLs (integration-tested).
+- Eval harness (`sitesift eval`) over a synthetic golden set — classifies each
+  fixture through the LLM ladder and reports `site_type_accuracy` (plus topic
+  accuracy when labeled). A deterministic fake-LLM path is CI-tested offline.
+- Release scaffolding: GitHub Actions CI (lint + format + typecheck + test, all
+  offline), `Makefile`, and docs (`roadmap`, `politeness`, `site_types`).
 - 145 tests; `ruff` + `ruff format` clean; `mypy --strict` clean on `models.py`
   and `net/guard.py`.
 
-**Milestone reached: the tool is useful and publishable with no LLM (v0.1.0 scope).**
-
-- LLM ladder (M4, v0.2.0 scope): `classify/llm/` — provider contract + structured
+- LLM ladder: `classify/llm/` — provider contract + structured
   output schema (`base.py`), stable hashed system prompt with injection-safe
   evidence delimiting (`prompt.py`), output validation with taxonomy-hierarchy
   enforcement and topic dedup (`validate.py`), the `LLMClassifier` engine, and
   two providers: **Anthropic** (Haiku 4.5 → Sonnet 5 via `messages.parse`,
   prompt caching, per-model param handling) and **Ollama** (local models via
   `/api/chat` with JSON-schema-constrained output + one repair pass).
-- `classify/ladder.py` now escalates rules → LLM small → LLM large → needs_human,
-  degrading gracefully to the best deterministic signal on LLM failure. Blocking
-  flags still short-circuit before any rung. Provenance (`model_id`,
-  `prompt_sha256`, `tokens_in/out`) is persisted per record.
+- `classify/ladder.py` runs LLM small → LLM large → needs_human: the LLM decides
+  every content URL, degrading gracefully on failure. Blocking flags
+  (dead/parked/soft-404/non-HTML) short-circuit to `blocked` before any model
+  call. Provenance (`model_id`, `prompt_sha256`, `tokens_in/out`) is persisted
+  per record.
 - Pipeline runs classification off the event loop; `sitesift run --llm sync
   --provider {anthropic,ollama} [--base-url ...] [--model-small/-large ...]`.
 - Tests: mocked ladder escalation/fallback/hierarchy (offline), plus **live**
   Ollama tests (classifier + full pipeline) that auto-skip when no endpoint is
-  reachable. Verified live against local models (gemma4:12b): rules-uncovered
-  types like `corporate` and `blog_personal` now classify correctly.
-- Full-ladder eval: `sitesift eval --llm` scores end-to-end `site_type_accuracy`
-  over the golden set through rules + LLM, with a per-method breakdown. Live run
-  against gemma4:12b: **1.00 accuracy** (rules 8/8, llm_small 2/2). The offline
-  ladder-eval machinery is CI-tested (rules-only path = 0.80).
-- 156 tests; lint/format/typecheck clean.
+  reachable. Verified live against local models (gemma4:12b): pages like
+  `corporate` and `blog_personal` classify correctly.
+- `sitesift eval` scores end-to-end `site_type_accuracy` over the golden set
+  through the LLM ladder, with a per-method breakdown. The offline eval machinery
+  is CI-tested with a deterministic fake LLM.
 
 ### Added (hardening pass)
 - `sitesift reclassify`: re-run classification from stored evidence without
-  re-fetching (after a rules/prompt/model change). Evidence storage now also
+  re-fetching (after a prompt/model/taxonomy change). Evidence storage now also
   persists the deterministic flags so re-classification is exact.
 - Fetch retries with exponential backoff + jitter, honouring `Retry-After` on
   429; interrupted-URL requeue on `--resume` (crash recovery).
 - `max_llm_concurrency` gate around the LLM classification step.
 
 ### Changed
+- **Classification is now LLM-driven.** The deterministic layer's only job is to
+  extract *all* canonical facts; the LLM is the decision engine for `site_type`
+  **and** topic on every content URL. `Evidence.to_prompt_json` now hands the
+  model the full fact set (host + TLD, all head/structured/language signals, the
+  full de-boilerplated main text) instead of a trimmed slice, and the prompt tells
+  it to weigh every signal (a `.gov` TLD or Shopify marker is evidence, not proof).
 - `set_status` validates column names against an allow-list.
 - Honest docs: `NOTICE`/`README` no longer claim bundled IAB data; `--scope` is
   documented as recorded metadata (no site/page behaviour yet).
@@ -91,6 +92,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   error code instead of a misleading `E_NONHTML`.
 
 ### Removed
+- The hand-written `site_type` rule engine (`classify/rules.py` + `data/rules.yaml`)
+  and everything tied to it: the `rules` classification method, the
+  `rules_version` provenance field/column, the `accept_threshold_rules` setting,
+  and the `rules_coverage`/`rules_precision` eval metrics. Those 8 rules were our
+  own opinable thresholds that pre-empted the model; judgment is now the LLM's.
+  Also dropped three declared-but-never-populated `Evidence` fields (`bylines`,
+  `dates_in_listing`, `has_sitemap`).
 - Dead code / cruft: unused `net/cache.py` blob store, unused store query
   helpers, unused config fields (`topic_depth`, `budget_usd`, `injection_canary`,
   `max_decompress_ratio`, `max_pages_per_domain`, and the unused Cache/Extract/

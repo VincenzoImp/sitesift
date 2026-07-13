@@ -1,32 +1,50 @@
-"""Gate the M3 acceptance targets in CI: rules coverage/precision on the golden set."""
+"""Exercise the LLM eval harness offline with a deterministic fake classifier.
+
+No network, no key: a fake that echoes each golden URL's label drives the whole
+extraction -> ladder -> scoring path, so the harness itself is tested in CI while
+the real accuracy numbers come from `sitesift eval` against a live provider.
+"""
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from pathlib import Path
 
 from sitesift.classify.ladder import Ladder
-from sitesift.classify.rules import RuleEngine
+from sitesift.classify.llm.base import LLMVerdict
+from sitesift.classify.llm.engine import LLMClassifier
 from sitesift.config import Settings
-from sitesift.evalharness import run_ladder_eval, run_rules_eval
+from sitesift.evalharness import run_ladder_eval
+from sitesift.models import SiteType
 
 _ROOT = Path(__file__).resolve().parents[2]
 _GOLDEN = _ROOT / "eval" / "golden.jsonl"
 _FIXTURES = _ROOT / "eval" / "fixtures"
 
 
-def test_rules_meet_m3_targets() -> None:
-    report = run_rules_eval(golden_path=_GOLDEN, fixtures_dir=_FIXTURES, threshold=0.90)
-    assert report.total == 10
-    assert report.rules_coverage >= 0.30, report.errors
-    assert report.rules_precision >= 0.95, report.errors
+def _echo_rules() -> list[tuple[str, LLMVerdict]]:
+    """One needle per golden entry: match the page's own `url` field, return its label."""
+    rules: list[tuple[str, LLMVerdict]] = []
+    for line in _GOLDEN.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        entry = json.loads(line)
+        needle = f'"url": "{entry["url"]}"'
+        verdict = LLMVerdict(
+            site_type=SiteType(entry["expected_site_type"]), site_type_confidence=0.95
+        )
+        rules.append((needle, verdict))
+    return rules
 
 
-def test_ladder_eval_rules_only() -> None:
-    # Exercises the full-ladder eval machinery offline (no LLM): everything goes
-    # through the rules rung, the two rule-uncovered types stay unknown.
-    ladder = Ladder(RuleEngine.load(), Settings(classify={"mode": "off"}), None)
+def test_ladder_eval_offline(fake_classifier: Callable[..., LLMClassifier]) -> None:
+    ladder = Ladder(Settings(classify={"mode": "sync"}), fake_classifier(_echo_rules()))
     report = run_ladder_eval(ladder=ladder, golden_path=_GOLDEN, fixtures_dir=_FIXTURES)
+
     assert report.total == 10
-    assert report.by_method["rules"] == 10
-    assert report.correct == 8  # corporate + blog have no rule -> unknown
-    assert report.site_type_accuracy == 0.8
+    assert report.site_type_accuracy == 1.0
+    assert report.by_method["llm_small"] == 10
+    assert report.correct_by_method["llm_small"] == 10
+    assert report.topic_accuracy is None  # no topic labels in the synthetic golden set

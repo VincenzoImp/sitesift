@@ -23,7 +23,6 @@ jobs:
         run: uv run mypy
       - name: Test
         run: uv run pytest -q
-      # The eval runs fully offline (frozen fixtures, no LLM), so it works on
-      # fork PRs without any secrets and gates the M3 rule targets.
-      - name: Rules eval
-        run: uv run sitesift eval
+        # The eval harness now needs an LLM provider, so accuracy is measured with
+        # `sitesift eval --provider ollama` locally, not in CI. Its offline
+        # machinery is exercised deterministically by tests/integration/test_eval.py.

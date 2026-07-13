@@ -1,10 +1,12 @@
-"""The classification ladder: rules → LLM small → LLM large → needs_human.
+"""The classification ladder — the LLM is the decision engine on every URL.
 
-Blocking flags short-circuit before any rung. Rules decide ``site_type`` at zero
-cost; if they don't clear the acceptance threshold, the LLM rungs take over
-(small first, escalating to large). An LLM failure degrades gracefully to the
-best deterministic signal available. When ``llm`` is ``None`` the ladder is
-rules-only (v0.1.0 behavior).
+The deterministic layer produces the facts; this decides. A blocking flag
+(dead/parked/soft_404/non-HTML) short-circuits to ``blocked`` because there is no
+content to judge — the one place no model runs. Otherwise the small model tries
+first and the large model takes over only when the small one is not confident
+enough (a deterministic cost gate, not a classification rule). An LLM failure
+degrades gracefully. When ``llm`` is ``None`` (``mode = off``) the run extracts
+facts but records ``blocked`` + ``needs_human`` instead of classifying.
 """
 
 from __future__ import annotations
@@ -16,7 +18,6 @@ from ..errors import ClassifyError
 from ..extract.language import language_from_evidence
 from ..models import ClassifyMethod, Evidence, Flags, LanguageInfo, Verdict
 from .llm.engine import LLMClassifier, LLMOutcome
-from .rules import RuleEngine, RuleResult
 
 
 @dataclass
@@ -32,13 +33,9 @@ class ClassifyOutcome:
 
 
 class Ladder:
-    def __init__(
-        self, rules: RuleEngine, settings: Settings, llm: LLMClassifier | None = None
-    ) -> None:
-        self._rules = rules
+    def __init__(self, settings: Settings, llm: LLMClassifier | None = None) -> None:
         self._llm = llm
         c = settings.classify
-        self._accept_rules = c.accept_threshold_rules
         self._accept_small = c.accept_threshold_small
         self._accept_large = c.accept_threshold_large
         self._model_small = c.model_small
@@ -47,26 +44,19 @@ class Ladder:
     def classify(self, ev: Evidence, flags: Flags) -> ClassifyOutcome:
         language = language_from_evidence(ev)
 
-        # Blocking flags: the other axes are unknown; spend nothing.
+        # Blocking flags: a non-content page. Nothing to classify, spend nothing.
         if flags.is_blocking:
-            verdict = Verdict.unknown(flags, reason=_blocking_reason(flags))
-            verdict.language = language
-            return ClassifyOutcome(verdict, ClassifyMethod.RULES, 1.0)
+            return _blocked(flags, language, _blocking_reason(flags), needs_human=False)
 
-        rule = self._rules.evaluate(ev)
-        if rule is not None and rule.confidence >= self._accept_rules:
-            return ClassifyOutcome(
-                _verdict_from_rule(rule, flags, language), ClassifyMethod.RULES, rule.confidence
-            )
-
+        # No model in the loop (mode=off): extract-only. Defer the judgment.
         if self._llm is None:
-            return self._rules_only(rule, flags, language)
+            return _blocked(flags, language, "classification disabled (mode=off)", needs_human=True)
 
         # Rung 1: small model.
         try:
             small = self._llm.classify(ev, flags, language, model=self._model_small)
         except ClassifyError:
-            return self._rules_only(rule, flags, language)
+            return _failed(flags, language)
         if _accepts(small.verdict, self._accept_small):
             return _llm_outcome(small, ClassifyMethod.LLM_SMALL)
 
@@ -81,20 +71,25 @@ class Ladder:
         # Neither rung cleared its threshold — hand the (more capable) verdict to a human.
         return _llm_outcome(large, ClassifyMethod.LLM_LARGE, needs_human=True)
 
-    def _rules_only(
-        self, rule: RuleResult | None, flags: Flags, language: LanguageInfo
-    ) -> ClassifyOutcome:
-        if rule is not None:
-            return ClassifyOutcome(
-                _verdict_from_rule(rule, flags, language), ClassifyMethod.RULES, rule.confidence
-            )
-        verdict = Verdict.unknown(flags, reason="no rule matched")
-        verdict.language = language
-        return ClassifyOutcome(verdict, ClassifyMethod.RULES, 0.0, needs_human=True)
-
 
 def _accepts(verdict: Verdict, threshold: float) -> bool:
     return verdict.site_type is not None and verdict.site_type_confidence >= threshold
+
+
+def _blocked(
+    flags: Flags, language: LanguageInfo, reason: str, *, needs_human: bool
+) -> ClassifyOutcome:
+    verdict = Verdict.unknown(flags, reason=reason)
+    verdict.language = language
+    return ClassifyOutcome(
+        verdict, ClassifyMethod.BLOCKED, 0.0 if needs_human else 1.0, needs_human=needs_human
+    )
+
+
+def _failed(flags: Flags, language: LanguageInfo) -> ClassifyOutcome:
+    verdict = Verdict.unknown(flags, reason="LLM classification failed")
+    verdict.language = language
+    return ClassifyOutcome(verdict, ClassifyMethod.FAILED, 0.0, needs_human=True)
 
 
 def _llm_outcome(
@@ -109,16 +104,6 @@ def _llm_outcome(
         prompt_sha256=outcome.prompt_sha256,
         tokens_in=outcome.usage.tokens_in,
         tokens_out=outcome.usage.tokens_out,
-    )
-
-
-def _verdict_from_rule(rule: RuleResult, flags: Flags, language: LanguageInfo) -> Verdict:
-    return Verdict(
-        flags=flags,
-        site_type=rule.site_type,
-        site_type_confidence=rule.confidence,
-        evidence=rule.evidence[:300],
-        language=language,
     )
 
 
