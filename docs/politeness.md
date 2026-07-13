@@ -7,9 +7,15 @@ citizen, and it asks the same of you.
 
 - **One request at a time per host**, with a configurable minimum delay between
   requests to the same host (`fetch.min_host_delay`, default 1.0s).
-- **robots.txt is respected** by default (parsed with `protego`). A host whose
-  `robots.txt` is unreachable (5xx/timeout) is treated as **disallow-all** until
-  the next run. Blocked URLs are still recorded, with `flags.blocked_robots`.
+- **robots.txt is consulted** by default (parsed with `protego`): an explicit
+  `Disallow` on a reachable (`2xx`) robots is honored, and blocked URLs are
+  recorded with `flags.blocked_robots`. An **unretrievable** robots.txt — a
+  `5xx`, an unfollowed `3xx` redirect, a timeout, or a connection error —
+  **fails open** (the page is fetched anyway), so a reachable page is never lost
+  to a hiccuping or redirecting robots endpoint. Set `fetch.respect_robots =
+  false` to skip robots entirely — fetch every URL, ignoring even an explicit
+  `Disallow` (intended for research crawls that must maximize coverage; the
+  responsibility below is then wholly yours).
 - **An identifying User-Agent** including a contact address. The tool refuses to
   fetch without `identity.contact` set (override only with
   `--no-contact-i-accept-responsibility`, which you should not need).
@@ -20,8 +26,8 @@ citizen, and it asks the same of you.
 
 - Set a real `identity.contact` so site owners can reach you.
 - Do not raise concurrency or lower delays to hammer small sites.
-- Do not use `--ignore-robots` or `--allow-private-ips` against systems you are
-  not authorized to access.
+- Do not use `fetch.respect_robots = false` or `security.allow_private_ips`
+  against systems you are not authorized to access.
 - Respect the terms of service of the sites you fetch.
 
 ## Security posture

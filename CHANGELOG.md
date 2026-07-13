@@ -6,7 +6,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Removed
+- Dead `RobotsPolicy.disallow_all` path and the unreachable `E_ROBOTS_UNAVAIL`
+  branch in the fetcher — vestigial after v0.1.2's robots fail-open. The
+  `E_ROBOTS_UNAVAIL` error code is kept (stable API) but is no longer produced.
+
+### Docs
+- `docs/politeness.md` and `docs/roadmap.md` updated to the robots fail-open
+  policy (explicit `Disallow` honored; unretrievable robots fetches anyway;
+  `fetch.respect_robots = false` ignores robots entirely).
 
 ## [0.1.2] - 2026-07-13
 

@@ -8,9 +8,10 @@ without reworking earlier phases.
 - **M0 — Scaffold**: packaging (uv + hatchling), Apache-2.0 + NOTICE, core models
   (`Evidence`/`Verdict`/`Flags`/`SiteType`/…), error taxonomy, config, `doctor`.
 - **M1 — Safe & polite fetch**: URL normalization, SSRF guard (IP pinning,
-  metadata/tunnel blocking, rebinding-tested), robots (protego + Google
-  semantics), per-host rate limiting (≤1 concurrent/host), streaming fetch with
-  hard body/decompression limits, SQLite frontier.
+  metadata/tunnel blocking, rebinding-tested), robots (protego; explicit
+  `Disallow` honored, unretrievable robots fails open), per-host rate limiting
+  (≤1 concurrent/host), streaming fetch with hard body/decompression limits,
+  SQLite frontier.
 - **M2 — Extraction**: full `Evidence` bundle (selectolax + JSON-LD + trafilatura
   main text + deterministic language via py3langid + CMS/e-commerce/ad
   fingerprints + anti-injection sanitization) and deterministic flags.

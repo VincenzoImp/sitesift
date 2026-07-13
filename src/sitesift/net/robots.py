@@ -27,25 +27,19 @@ from protego import Protego
 class RobotsPolicy:
     """The decision surface for one host."""
 
-    kind: str  # "rules" | "allow_all" | "disallow_all"
+    kind: str  # "rules" | "allow_all"
     _parser: Protego | None = None
     crawl_delay_value: float | None = None
 
     def can_fetch(self, url: str, user_agent: str) -> bool:
         if self.kind == "allow_all":
             return True
-        if self.kind == "disallow_all":
-            return False
         assert self._parser is not None
         return bool(self._parser.can_fetch(url, user_agent))
 
     @classmethod
     def allow_all(cls) -> RobotsPolicy:
         return cls(kind="allow_all")
-
-    @classmethod
-    def disallow_all(cls) -> RobotsPolicy:
-        return cls(kind="disallow_all")
 
     @classmethod
     def from_body(cls, body: str, user_agent: str) -> RobotsPolicy:

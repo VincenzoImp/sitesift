@@ -242,8 +242,6 @@ class Fetcher:
         policy = self._robots.get(host)
         if policy is None:
             policy = await self._fetch_robots(scheme, host, port)
-        if policy.kind == "disallow_all":
-            return ErrorCode.E_ROBOTS_UNAVAIL
         if not policy.can_fetch(url, self._ua):
             return ErrorCode.E_ROBOTS_BLOCK
         return None

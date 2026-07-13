@@ -26,7 +26,7 @@ class ErrorCode(StrEnum):
 
     # --- Politeness / access ----------------------------------------------
     E_ROBOTS_BLOCK = "E_ROBOTS_BLOCK"  # disallowed by robots.txt
-    E_ROBOTS_UNAVAIL = "E_ROBOTS_UNAVAIL"  # robots.txt 5xx/timeout -> disallow-all
+    E_ROBOTS_UNAVAIL = "E_ROBOTS_UNAVAIL"  # retained (stable); no longer produced (fail-open)
     E_SSRF_BLOCKED = "E_SSRF_BLOCKED"  # resolved to a forbidden IP / port
     E_HTTP_4XX = "E_HTTP_4XX"
     E_HTTP_5XX = "E_HTTP_5XX"
