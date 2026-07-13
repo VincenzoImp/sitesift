@@ -25,6 +25,9 @@ blobs/
 *.db-shm
 ~/.cache/sitesift/
 
+# local config with a real contact (keep only examples/sitesift.toml versioned)
+/sitesift.toml
+
 # OS / editor
 .DS_Store
 .idea/
