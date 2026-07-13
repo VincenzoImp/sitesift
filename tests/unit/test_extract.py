@@ -50,6 +50,32 @@ SOFT404_HTML = """<!doctype html><html lang="en"><head><title>404 Not Found</tit
 <body><h1>Page Not Found</h1><p>The page you requested does not exist here.</p></body></html>"""
 
 
+def test_price_extraction_no_redos_on_digit_run() -> None:
+    """A page with a huge run of digits (no currency) must extract fast. The
+    price regex used to backtrack O(n^2) on such input, freezing the whole batch
+    on the event loop (parse_html held the GIL for minutes)."""
+    import time
+
+    body = "9" * 3_000_000  # pathological numeric page, well within body limits
+    html = (
+        "<!doctype html><html lang='en'><head><title>Nums</title></head>"
+        f"<body><p>{body}</p></body></html>"
+    )
+    start = time.monotonic()
+    ev, _ = build_evidence(
+        content=html.encode(),
+        url_raw="https://x.it/",
+        url_final="https://x.it/",
+        redirect_chain=[],
+        status=200,
+        headers=HTML_HEADERS,
+        fetched_at=FETCHED,
+    )
+    elapsed = time.monotonic() - start
+    assert elapsed < 5.0, f"extraction took {elapsed:.1f}s — ReDoS regression"
+    assert ev.price_patterns == 0  # digits with no currency symbol are not prices
+
+
 def test_news_evidence() -> None:
     ev, flags = build_evidence(
         content=NEWS_HTML.encode(),

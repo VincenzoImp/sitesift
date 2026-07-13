@@ -15,7 +15,14 @@ from selectolax.parser import HTMLParser
 _FEED_TYPES = {"application/rss+xml", "application/atom+xml"}
 _SEARCH_NAMES = {"q", "query", "search", "s", "keyword"}
 _CART_TOKENS = ("cart", "carrello", "basket", "checkout", "panier", "warenkorb", "cesta")
-_PRICE = re.compile(r"(?:[€$£]|USD|EUR|GBP)\s?\d[\d.,]*|\d[\d.,]*\s?(?:[€$£]|USD|EUR|GBP)")
+# The digit-run branch is anchored with a negative lookbehind and made possessive
+# so a long run of digits (e.g. a 20 MiB numeric page) cannot cause O(n^2) rescanning
+# (a ReDoS that froze the whole batch on the event loop). See _TEXT_SCAN_MAX.
+_PRICE = re.compile(
+    r"(?:[€$£]|USD|EUR|GBP)\s?\d[\d.,]*+|(?<![\d.,])\d[\d.,]*+\s?(?:[€$£]|USD|EUR|GBP)"
+)
+# Signal scans (price regex, paywall tokens) only need a bounded prefix of the body.
+_TEXT_SCAN_MAX = 1_000_000
 _ARTICLE_HREF = re.compile(
     r"/\d{4}/\d{2}/|/article/|/articolo/|/news/|/story/|/post/|/\d{4,}(?:/|$)"
 )
@@ -123,8 +130,9 @@ def parse_html(tree: HTMLParser, *, host: str, domain: str, base_url: str) -> Pa
     out.body_text = body.text(separator=" ", strip=True) if body is not None else ""
     out.body_text_len = len(out.body_text)
 
-    out.price_patterns = min(len(_PRICE.findall(out.body_text)), 999)
-    low = out.body_text.lower()
+    scan = out.body_text[:_TEXT_SCAN_MAX]
+    out.price_patterns = min(len(_PRICE.findall(scan)), 999)
+    low = scan.lower()
     out.paywall_markers = [tok for tok in _PAYWALL_TOKENS if tok in low]
 
     out.js_only = (
