@@ -42,6 +42,9 @@ class ErrorCode(StrEnum):
     E_LLM_AUTH = "E_LLM_AUTH"  # provider auth failure
     E_BUDGET = "E_BUDGET"  # local cost budget exceeded
 
+    # --- Internal ----------------------------------------------------------
+    E_UNEXPECTED = "E_UNEXPECTED"  # an unhandled exception escaped per-URL processing
+
 
 class SiteSiftError(Exception):
     """Base exception carrying a stable :class:`ErrorCode`.

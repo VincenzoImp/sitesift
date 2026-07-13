@@ -13,12 +13,14 @@ from collections.abc import Callable, Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import h2.exceptions
 import pytest
 
 from sitesift.classify.llm.base import LLMVerdict
 from sitesift.classify.llm.engine import LLMClassifier
 from sitesift.config import Settings
 from sitesift.models import Scope, SiteType
+from sitesift.net.fetcher import Fetcher
 from sitesift.pipeline import reclassify, run_pipeline
 
 _SHOP = (
@@ -188,3 +190,51 @@ async def test_reclassify_from_stored_evidence(
     assert stats.classified == 2
     types = {r["site"]["site_type"] for r in _records(out2)}
     assert types == {"ecommerce", "news_outlet"}
+
+
+async def test_pipeline_survives_unexpected_fetch_exception(
+    server: int,
+    tmp_path: Path,
+    fake_classifier: Callable[..., LLMClassifier],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One URL raising an unwrapped low-level exception (e.g. an ``h2``
+    ``ProtocolError`` from a misbehaving HTTP/2 host) must be recorded as an
+    error, never abort the whole batch. Regression for a full-run crawl that
+    died on the first bad host."""
+    original = Fetcher.fetch
+
+    async def flaky(self: Fetcher, url_norm: str) -> object:
+        if url_norm.endswith("/boom"):
+            raise h2.exceptions.ProtocolError(
+                "Invalid input ConnectionInputs.SEND_SETTINGS in state ConnectionState.CLOSED"
+            )
+        return await original(self, url_norm)
+
+    monkeypatch.setattr(Fetcher, "fetch", flaky)
+
+    out = tmp_path / "results.jsonl"
+    db = tmp_path / "state.db"
+    base = f"http://127.0.0.1:{server}"
+    lines = [f"{base}/", f"{base}/news", f"{base}/boom"]
+
+    stats = await run_pipeline(
+        _settings(server),
+        lines,
+        out_path=str(out),
+        db_path=str(db),
+        default_scope=Scope.AUTO,
+        classifier=fake_classifier(_RULES),
+    )
+
+    # Reaching here at all proves the batch did not abort. The two good pages
+    # were still classified; the poison URL is recorded as a single error.
+    assert stats.classified == 2
+    assert stats.errors == 1
+    assert stats.by_error.get("E_UNEXPECTED") == 1
+
+    # And the poison URL is recorded as a terminal error in the output.
+    error_records = [
+        r for r in _records(out) if r["provenance"].get("error_code") == "E_UNEXPECTED"
+    ]
+    assert len(error_records) == 1

@@ -133,7 +133,10 @@ async def run_pipeline(
 
     async def worker(row: UrlRow) -> None:
         async with sem:
-            await _process(row, store, fetcher, ladder, writer, llm_sem, tax_version, stats)
+            try:
+                await _process(row, store, fetcher, ladder, writer, llm_sem, tax_version, stats)
+            except Exception as exc:  # noqa: BLE001 - one URL must never abort the batch
+                _handle_unexpected(row, exc, store, writer, stats)
 
     try:
         async with anyio.create_task_group() as tg:
@@ -295,6 +298,33 @@ async def _process(
         return
 
     _handle_error(row, out, store, writer, stats)
+
+
+def _handle_unexpected(
+    row: UrlRow, exc: Exception, store: FrontierStore, writer: JsonlWriter, stats: PipelineStats
+) -> None:
+    """Record an unhandled per-URL failure and swallow it.
+
+    A single bad URL must never cancel the whole batch: an unwrapped low-level
+    exception (e.g. an ``h2`` ``ProtocolError`` from a misbehaving HTTP/2 host)
+    used to propagate through the task group and abort the entire crawl. The URL
+    is marked terminally failed so ``--resume`` does not retry the poison forever.
+    """
+    code = str(ErrorCode.E_UNEXPECTED)
+    store.set_status(row.url_norm, UrlStatus.FAILED_FETCH, last_error_code=code)
+    writer.write(
+        build_error_record(
+            url_raw=row.url_raw,
+            url_final=row.url_norm,
+            domain=row.domain,
+            scope=row.scope,
+            flags=Flags(),
+            error_code=code,
+            sitesift_version=__version__,
+        )
+    )
+    stats.errors += 1
+    stats.by_error[code] = stats.by_error.get(code, 0) + 1
 
 
 def _handle_error(

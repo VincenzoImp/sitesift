@@ -68,7 +68,10 @@ class Fetcher:
         self._respect_robots = f.respect_robots
         self._client = httpx.AsyncClient(
             follow_redirects=False,
-            http2=True,
+            # HTTP/1.1 only: this crawler issues at most one concurrent request per
+            # host, so HTTP/2 multiplexing buys nothing — and a misbehaving h2 peer
+            # can raise a low-level h2 ProtocolError that httpx does not wrap.
+            http2=False,
             headers={"User-Agent": self._ua, "Accept": "text/html,application/xhtml+xml"},
             timeout=httpx.Timeout(
                 connect=f.timeout_connect,
@@ -138,7 +141,9 @@ class Fetcher:
                         await resp.aclose()
             except httpx.TimeoutException:
                 return _err(url_norm, current, chain, ErrorCode.E_TIMEOUT)
-            except (httpx.ConnectError, httpx.NetworkError, httpx.RemoteProtocolError):
+            except httpx.HTTPError:
+                # Any other transport-layer httpx error (connect/read/protocol);
+                # never let it escape into the batch task group.
                 return _err(url_norm, current, chain, ErrorCode.E_CONNECT)
             except _BodyLimitExceeded as exc:
                 return _err(url_norm, current, chain, exc.code)
