@@ -8,6 +8,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Nothing yet._
 
+## [0.1.1] - 2026-07-13
+
+### Fixed
+- **Crawl resilience:** an unhandled exception from a single URL (e.g. an
+  unwrapped `h2` `ProtocolError` from a misbehaving HTTP/2 host) no longer
+  propagates through the batch task group and aborts the whole run. Each URL's
+  failure is isolated and recorded (`E_UNEXPECTED`), so a large `run` cannot be
+  killed by one bad host. Regression test in `tests/integration/test_pipeline.py`.
+
+### Changed
+- The fetcher uses HTTP/1.1 only (`http2=False`): the crawler issues at most one
+  concurrent request per host, so HTTP/2 multiplexing buys nothing and its
+  low-level protocol errors are a needless failure mode.
+- Broadened the fetcher's transport-error handling to catch any `httpx.HTTPError`.
+
+### Added
+- `ErrorCode.E_UNEXPECTED` — a per-URL failure that escaped processing.
+
 ## [0.1.0] - 2026-07-13
 
 First tagged pre-release. The pipeline is complete and tested end-to-end;
