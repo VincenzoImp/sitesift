@@ -8,6 +8,26 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Nothing yet._
 
+## [0.1.2] - 2026-07-13
+
+### Fixed
+- **robots.txt handling now fails open.** A robots.txt that can't be read
+  cleanly no longer blocks the host: `5xx`, a `3xx` redirect (not followed), a
+  timeout, or a connection error → **allow** (fetch anyway), instead of the old
+  fail-closed `disallow_all`. Only an explicit `2xx` robots with a matching
+  `Disallow` still blocks. This recovers a large class of reachable homepages
+  that were wrongly skipped as `E_ROBOTS_UNAVAIL` (hosts that redirect their
+  `/robots.txt`, or whose robots endpoint is slow under load). `robots.py` +
+  `fetcher.py`, with unit + integration regression tests.
+
+### Added
+- `sitesift requeue --status <status> --db <db>` — reset every URL in a terminal
+  status back to `pending` for a targeted re-run (e.g. re-fetch
+  `blocked_robots_unavailable` after relaxing the robots policy) without
+  touching rows that already succeeded. Backed by `FrontierStore.requeue_status`.
+- Documented `fetch.respect_robots = false` in `examples/sitesift.toml` — ignore
+  robots.txt entirely (also overrides an explicit `Disallow`).
+
 ## [0.1.1] - 2026-07-13
 
 ### Fixed
