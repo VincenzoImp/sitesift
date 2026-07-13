@@ -20,7 +20,7 @@ from sitesift.config import Settings
 from sitesift.models import Scope
 from sitesift.pipeline import run_pipeline
 
-_URL = os.environ.get("SITESIFT_TEST_OLLAMA_URL", "http://100.86.142.99:11434")
+_URL = os.environ.get("SITESIFT_TEST_OLLAMA_URL", "http://localhost:11434")
 _MODEL = os.environ.get("SITESIFT_TEST_OLLAMA_MODEL", "gemma4:12b")
 
 

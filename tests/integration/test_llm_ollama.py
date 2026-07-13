@@ -20,7 +20,7 @@ from sitesift.extract.language import language_from_evidence
 from sitesift.models import SiteType
 from sitesift.taxonomy.loader import load_taxonomy
 
-_URL = os.environ.get("SITESIFT_TEST_OLLAMA_URL", "http://100.86.142.99:11434")
+_URL = os.environ.get("SITESIFT_TEST_OLLAMA_URL", "http://localhost:11434")
 _MODEL = os.environ.get("SITESIFT_TEST_OLLAMA_MODEL", "gemma4:12b")
 _HEADERS = {"content-type": "text/html; charset=utf-8"}
 _FETCHED = datetime(2026, 7, 10, tzinfo=UTC)
